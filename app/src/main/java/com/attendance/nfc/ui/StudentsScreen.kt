@@ -13,6 +13,14 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -84,7 +92,13 @@ private fun StudentDialog(vm: MainViewModel, initial: Student?, grades: List<Str
     var photo by remember { mutableStateOf(initial?.photoPath ?: "") }
     val waiting by vm.cardCapture.collectAsState()
     val scope = rememberCoroutineScope()
+    val uidFocus = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
 
+    // عند بدء القراءة يُركَّز حقل الرقم ليستقبل القارئ الخارجي (لوحة مفاتيح) دون ظهور لوحة المفاتيح
+    LaunchedEffect(waiting) {
+        if (waiting) { try { uidFocus.requestFocus() } catch (_: Exception) {}; keyboard?.hide() }
+    }
     LaunchedEffect(Unit) { vm.captured.collect { uid = it } }
     DisposableEffect(Unit) { onDispose { vm.cardCapture.value = false } }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -104,11 +118,17 @@ private fun StudentDialog(vm: MainViewModel, initial: Student?, grades: List<Str
                 AppField(name, { name = it }, "اسم الطالب")
                 AppField(grade, { grade = it }, "الصف / المجموعة")
                 GradeChips(grades, grade) { grade = it }
-                AppField(uid, { uid = it.uppercase().filter { c -> c.isLetterOrDigit() } }, "رقم البطاقة (UID)")
-                Btn3D(
-                    if (waiting) "⏳ قرّب البطاقة الآن من ظهر الهاتف... (اضغط للإلغاء)" else "📲 مسح البطاقة بـ NFC",
-                    { vm.cardCapture.value = !waiting }, Modifier.fillMaxWidth(), color = if (waiting) WarnC else Pri
+                AppField(
+                    uid, { uid = it.uppercase().filter { c -> c.isLetterOrDigit() } }, "رقم البطاقة (UID)",
+                    Modifier.focusRequester(uidFocus).onPreviewKeyEvent { e ->
+                        // القارئ الخارجي يرسل Enter بعد الرقم: نُنهي وضع الانتظار
+                        if ((e.key == Key.Enter || e.key == Key.NumPadEnter) && e.type == KeyEventType.KeyDown) {
+                            if (uid.isNotBlank()) vm.cardCapture.value = false
+                            true
+                        } else false
+                    }
                 )
+                CardReadButton(waiting, uid.isNotBlank(), { if (!waiting) uid = ""; vm.cardCapture.value = !waiting })
             }
         },
         confirmButton = {

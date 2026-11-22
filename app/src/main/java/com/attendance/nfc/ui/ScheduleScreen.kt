@@ -93,6 +93,18 @@ private fun ScheduleDialog(
         start = if (last != null) fromMin(toMin(entryEnd(last, lectureMin)) + breakMin) else ""
     }
 
+    // أول حصة في نفس اليوم يتداخل وقتها مع الحصة الحالية (التلامس عند الحافة مسموح)
+    fun conflict(): ScheduleItem? {
+        if (start.isBlank()) return null
+        val s1 = toMin(start)
+        val e1 = if (end.isNotBlank()) toMin(end) else s1 + lectureMin
+        return all.filter { it.day == day && it.id != initial?.id }.sortedBy { toMin(it.startTime) }.firstOrNull { o ->
+            val s2 = toMin(o.startTime)
+            val e2 = toMin(entryEnd(o, lectureMin))
+            s1 < e2 && s2 < e1
+        }
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss, containerColor = Color(0xFF1A2150),
         title = { Text(if (initial == null) "إضافة حصة" else "تعديل حصة") },
@@ -112,6 +124,9 @@ private fun ScheduleDialog(
                     Text("بدء وإنهاء تلقائي لهذه الحصة", modifier = Modifier.weight(1f))
                     Switch(checked = auto, onCheckedChange = { auto = it })
                 }
+                conflict()?.let { c ->
+                    Text("⚠️ يتعارض مع «${c.subject}» (${c.startTime} – ${entryEnd(c, lectureMin)})", color = WarnC, fontSize = 13.sp)
+                }
                 if (error.isNotBlank()) Text(error, color = BadC)
             }
         },
@@ -121,6 +136,10 @@ private fun ScheduleDialog(
                     subject.isBlank() -> error = "أدخل اسم المادة"
                     start.isBlank() -> error = "اختر وقت البدء"
                     end.isNotBlank() && toMin(end) <= toMin(start) -> error = "وقت الانتهاء يجب أن يكون بعد البدء"
+                    conflict() != null -> {
+                        val c = conflict()!!
+                        error = "تعارض مع حصة «${c.subject}» يوم ${DAY_NAMES[c.day]} (${c.startTime} – ${entryEnd(c, lectureMin)}). غيّر الوقت أو اليوم."
+                    }
                     else -> {
                         vm.saveSchedule(ScheduleItem(initial?.id ?: UUID.randomUUID().toString(), day, subject.trim(), grp.trim(), start, end, late.toIntOrNull() ?: defaultLate, auto, initial?.ownerId ?: ""))
                         onDismiss()

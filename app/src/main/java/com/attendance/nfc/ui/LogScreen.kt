@@ -36,6 +36,13 @@ fun LogScreen(vm: MainViewModel) {
     val filtered = rows.filter {
         (selSession.isBlank() || it.sessionId == selSession) && (q.isBlank() || it.studentName.contains(q, true))
     }
+    // ---- تقسيم السجلات إلى صفحات لتبقى الشاشة سريعة مهما كثر عدد السجلات ----
+    var page by rememberSaveable(date, q, selSession) { mutableStateOf(0) }
+    val pages = maxOf(1, (filtered.size + PAGE_SIZE - 1) / PAGE_SIZE)
+    val cur = page.coerceIn(0, pages - 1)
+    val pageRows = filtered.drop(cur * PAGE_SIZE).take(PAGE_SIZE)
+    var absPage by rememberSaveable(date, selSession) { mutableStateOf(0) }
+
     val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
         if (uri != null) vm.writeCsv(uri, filtered)
     }
@@ -68,7 +75,8 @@ fun LogScreen(vm: MainViewModel) {
             }
         }
         if (filtered.isEmpty()) item { Text("لا توجد سجلات في هذا اليوم", color = Mut) }
-        items(filtered, key = { it.id }) { a ->
+        if (pages > 1) item { PageBar(cur, pages, filtered.size) { page = it } }
+        items(pageRows, key = { it.id }) { a ->
             GlassCard {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Column(Modifier.weight(1f)) {
@@ -82,6 +90,8 @@ fun LogScreen(vm: MainViewModel) {
             }
         }
 
+        if (pages > 1) item { PageBar(cur, pages, filtered.size) { page = it } }
+
         // الغائبون في المحاضرة المحددة
         val chosen = daySessions.find { it.id == selSession }
         if (chosen != null) {
@@ -89,7 +99,10 @@ fun LogScreen(vm: MainViewModel) {
             val absent = students.filter { (chosen.grp.isBlank() || it.grade == chosen.grp) && it.id !in present }
             item { SectionTitle("الغائبون عن «${chosen.subject}» (${absent.size})") }
             if (absent.isEmpty()) item { Text("لا يوجد غائبون 🎉", color = Mut) }
-            items(absent, key = { "abs_" + it.id }) { st ->
+            val absPages = maxOf(1, (absent.size + PAGE_SIZE - 1) / PAGE_SIZE)
+            val absCur = absPage.coerceIn(0, absPages - 1)
+            if (absPages > 1) item { PageBar(absCur, absPages, absent.size) { absPage = it } }
+            items(absent.drop(absCur * PAGE_SIZE).take(PAGE_SIZE), key = { "abs_" + it.id }) { st ->
                 GlassCard {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         StudentAvatar(st.photoPath, 40.dp)
@@ -106,5 +119,20 @@ fun LogScreen(vm: MainViewModel) {
 
     deleting?.let { a ->
         ConfirmDialog("حذف سجل «${a.studentName}»؟", "حذف", onOk = { vm.deleteAttendance(a.id, "${a.studentName} — ${a.subject} ${a.date} ${a.time}"); deleting = null }, onDismiss = { deleting = null })
+    }
+}
+
+private const val PAGE_SIZE = 25
+
+/** شريط التنقل بين الصفحات: السابق / رقم الصفحة / التالي. */
+@Composable
+private fun PageBar(current: Int, pages: Int, total: Int, onPage: (Int) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Btn3D("السابق ›", { onPage(current - 1) }, enabled = current > 0, small = true)
+        Text(
+            "صفحة ${current + 1} من $pages  ($total)", color = Mut, fontSize = 12.sp,
+            modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center
+        )
+        Btn3D("‹ التالي", { onPage(current + 1) }, enabled = current < pages - 1, small = true)
     }
 }

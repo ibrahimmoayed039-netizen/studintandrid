@@ -2,6 +2,11 @@ package com.attendance.nfc.ui
 
 import android.app.TimePickerDialog as AndroidTimePicker
 import android.graphics.BitmapFactory
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -208,3 +213,50 @@ fun rememberTicker(): State<LocalDateTime> =
     produceState(initialValue = LocalDateTime.now()) {
         while (true) { delay(15_000); value = LocalDateTime.now() }
     }
+
+
+/** زر قراءة البطاقة: أيقونة نابضة أثناء الانتظار، ويتحول للأخضر بعد قراءة رقم. */
+@Composable
+fun CardReadButton(waiting: Boolean, hasUid: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val color = when { waiting -> WarnC; hasUid -> OkC; else -> Pri }
+    val pulse = rememberInfiniteTransition(label = "pulse")
+    val phase by pulse.animateFloat(
+        initialValue = 0f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(1400, easing = LinearEasing)), label = "phase"
+    )
+    val shape = RoundedCornerShape(20.dp)
+    val title = when { waiting -> "بانتظار البطاقة..."; hasUid -> "تمت القراءة ✓ (اضغط لإعادة القراءة)"; else -> "قراءة البطاقة" }
+    val sub = when {
+        waiting -> "مرّر البطاقة على القارئ الخارجي أو قرّبها من الهاتف · اضغط للإلغاء"
+        else -> "قارئ RFID الخارجي أو NFC الهاتف"
+    }
+    Row(
+        modifier.fillMaxWidth()
+            .shadow(10.dp, shape, ambientColor = color, spotColor = color)
+            .clip(shape)
+            .background(Brush.horizontalGradient(listOf(lerp(color, Color.White, 0.15f), lerp(color, Pri2, 0.45f))))
+            .border(1.dp, Color.White.copy(alpha = .35f), shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Box(Modifier.size(64.dp), contentAlignment = Alignment.Center) {
+            if (waiting) {
+                Box(
+                    Modifier.size(64.dp)
+                        .graphicsLayer { scaleX = 0.6f + 0.4f * phase; scaleY = 0.6f + 0.4f * phase; alpha = 1f - phase }
+                        .border(2.dp, Color.White, CircleShape)
+                )
+            }
+            Box(
+                Modifier.size(46.dp).clip(CircleShape).background(Color.White.copy(alpha = .22f)),
+                contentAlignment = Alignment.Center
+            ) { Text(if (waiting) "📡" else if (hasUid) "✅" else "💳", fontSize = 24.sp) }
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
+            Text(sub, fontSize = 12.sp, color = Color(0xFFF3F5FF))
+        }
+    }
+}
