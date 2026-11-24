@@ -1,6 +1,16 @@
 package com.attendance.nfc.ui
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
@@ -32,14 +42,14 @@ fun UsersScreen(vm: MainViewModel) {
             }
         }
         item {
-            Text("المدير يرى كل شيء ويدير الطلاب والإعدادات. المدرّس يرى جدوله ومحاضراته فقط.", color = Mut, fontSize = 13.sp)
+            Text("المدير يرى كل شيء ويدير الطلاب والإعدادات. المدرّس يرى جدوله ومحاضراته فقط. يمكن تخصيص بطاقة لكل مدرّس تؤكّد بها عمليات الحذف بدل كلمة المرور.", color = Mut, fontSize = 13.sp)
         }
         items(users, key = { it.id }) { u ->
             GlassCard {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Column(Modifier.weight(1f)) {
                         Text(u.name + if (u.id == me?.id) " (أنت)" else "", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                        Text("@${u.username}", color = Mut, fontSize = 13.sp)
+                        Text("@${u.username}" + if (u.cardUid.isNotBlank()) "  •  💳 بطاقة مسجّلة" else "", color = Mut, fontSize = 13.sp)
                     }
                     Badge(if (u.role == "admin") "مدير" else "مدرّس", if (u.role == "admin") Pri2 else InfoC)
                 }
@@ -69,13 +79,24 @@ private fun UserDialog(vm: MainViewModel, initial: User?, onDismiss: () -> Unit)
     var name by remember { mutableStateOf(initial?.name ?: "") }
     var role by remember { mutableStateOf(initial?.role ?: "teacher") }
     var password by remember { mutableStateOf("") }
+    var card by remember { mutableStateOf(initial?.cardUid ?: "") }
     var error by remember { mutableStateOf("") }
+    val waiting by vm.cardCapture.collectAsState()
+    val cardFocus = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+
+    // عند بدء القراءة يُركَّز حقل الرقم ليستقبل القارئ الخارجي دون ظهور لوحة المفاتيح
+    LaunchedEffect(waiting) {
+        if (waiting) { try { cardFocus.requestFocus() } catch (_: Exception) {}; keyboard?.hide() }
+    }
+    LaunchedEffect(Unit) { vm.captured.collect { card = it } }
+    DisposableEffect(Unit) { onDispose { vm.cardCapture.value = false } }
 
     AlertDialog(
         onDismissRequest = onDismiss, containerColor = Color(0xFF1A2150),
         title = { Text(if (initial == null) "مستخدم جديد" else "تعديل مستخدم") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (initial == null) AppField(username, { username = it.filter { c -> !c.isWhitespace() } }, "اسم المستخدم (للدخول)")
                 else Text("@${initial.username}", color = Mut)
                 AppField(name, { name = it }, "الاسم الظاهر")
@@ -84,14 +105,25 @@ private fun UserDialog(vm: MainViewModel, initial: User?, onDismiss: () -> Unit)
                     FilterChip(selected = role == "admin", onClick = { role = "admin" }, label = { Text("مدير") })
                 }
                 if (initial == null) AppField(password, { password = it }, "كلمة المرور", visual = PasswordVisualTransformation())
+                Text("بطاقة المدرّس الخاصة (اختياري) — لتأكيد الحذف", color = Mut, fontSize = 12.sp)
+                AppField(
+                    card, { card = it.uppercase().filter { c -> c.isLetterOrDigit() } }, "رقم البطاقة (UID)",
+                    Modifier.focusRequester(cardFocus).onPreviewKeyEvent { e ->
+                        if ((e.key == Key.Enter || e.key == Key.NumPadEnter) && e.type == KeyEventType.KeyDown) {
+                            if (card.isNotBlank()) vm.cardCapture.value = false
+                            true
+                        } else false
+                    }
+                )
+                CardReadButton(waiting, card.isNotBlank(), { if (!waiting) card = ""; vm.cardCapture.value = !waiting })
                 if (error.isNotBlank()) Text(error, color = BadC)
             }
         },
         confirmButton = {
             TextButton(onClick = {
                 val done: (String?) -> Unit = { err -> if (err == null) onDismiss() else error = err }
-                if (initial == null) vm.createUser(username, password, name, role, done)
-                else vm.updateUser(initial.id, name, role, done)
+                if (initial == null) vm.createUser(username, password, name, role, card, done)
+                else vm.updateUser(initial.id, name, role, card, done)
             }) { Text("حفظ", fontWeight = FontWeight.Bold) }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("إلغاء") } }

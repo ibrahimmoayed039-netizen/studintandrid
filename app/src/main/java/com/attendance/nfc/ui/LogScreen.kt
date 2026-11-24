@@ -118,7 +118,9 @@ fun LogScreen(vm: MainViewModel) {
     }
 
     deleting?.let { a ->
-        ConfirmDialog("حذف سجل «${a.studentName}»؟", "حذف", onOk = { vm.deleteAttendance(a.id, "${a.studentName} — ${a.subject} ${a.date} ${a.time}"); deleting = null }, onDismiss = { deleting = null })
+        AuthDialog(vm, "حذف سجل «${a.studentName}» — يتطلب تأكيد المدرّس",
+            onGranted = { vm.deleteAttendance(a.id, "${a.studentName} — ${a.subject} ${a.date} ${a.time}"); deleting = null },
+            onDismiss = { deleting = null })
     }
 }
 

@@ -8,6 +8,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -28,6 +29,10 @@ fun ScheduleScreen(vm: MainViewModel) {
     var creating by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf<ScheduleItem?>(null) }
     val grades = students.map { it.grade }.filter { it.isNotBlank() }.distinct()
+    // فرز حسب اليوم: -1 = كل الأيام. تظهر أزرار الأيام التي فيها حصص فقط.
+    var dayFilter by rememberSaveable { mutableIntStateOf(-1) }
+    val daysWithItems = (0..6).filter { d -> schedule.any { it.day == d } }
+    val activeDay = if (dayFilter in daysWithItems) dayFilter else -1
 
     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
@@ -43,7 +48,19 @@ fun ScheduleScreen(vm: MainViewModel) {
             )
         }
         if (schedule.isEmpty()) item { Text("لا توجد حصص بعد.", color = Mut) }
-        (0..6).forEach { d ->
+        if (daysWithItems.isNotEmpty()) item(key = "dayFilter") {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                item {
+                    FilterChip(selected = activeDay == -1, onClick = { dayFilter = -1 },
+                        label = { Text("الكل (${schedule.size})") })
+                }
+                items(daysWithItems) { d ->
+                    FilterChip(selected = activeDay == d, onClick = { dayFilter = d },
+                        label = { Text("${DAY_NAMES[d]} (${schedule.count { it.day == d }})") })
+                }
+            }
+        }
+        (0..6).filter { activeDay == -1 || it == activeDay }.forEach { d ->
             val dayItems = schedule.filter { it.day == d }
             if (dayItems.isNotEmpty()) {
                 item(key = "h$d") { SectionTitle(DAY_NAMES[d]) }

@@ -37,6 +37,16 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import com.attendance.nfc.MainViewModel
 import com.attendance.nfc.toMin
 import kotlinx.coroutines.delay
 import java.time.LocalDateTime
@@ -259,4 +269,69 @@ fun CardReadButton(waiting: Boolean, hasUid: Boolean, onClick: () -> Unit, modif
             Text(sub, fontSize = 12.sp, color = Color(0xFFF3F5FF))
         }
     }
+}
+
+
+/**
+ * تأكيد عملية حساسة (حذف): كلمة مرور المدرّس، أو تمرير بطاقته الخاصة (NFC الهاتف أو قارئ خارجي).
+ * onGranted تُستدعى مرة واحدة فقط عند نجاح التأكيد.
+ */
+@Composable
+fun AuthDialog(vm: MainViewModel, title: String, onGranted: () -> Unit, onDismiss: () -> Unit) {
+    var password by remember { mutableStateOf("") }
+    var cardText by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var done by remember { mutableStateOf(false) }
+    val cardFocus = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+
+    fun grant() { if (!done) { done = true; onGranted() } }
+
+    LaunchedEffect(Unit) {
+        vm.authWaiting.value = true
+        delay(150)
+        try { cardFocus.requestFocus() } catch (_: Exception) {}
+        keyboard?.hide()
+    }
+    DisposableEffect(Unit) { onDispose { vm.authWaiting.value = false } }
+    LaunchedEffect(Unit) { vm.authGranted.collect { grant() } }
+    LaunchedEffect(Unit) { vm.authDenied.collect { error = it; cardText = "" } }
+
+    AlertDialog(
+        onDismissRequest = onDismiss, containerColor = Color(0xFF1A2150),
+        icon = { Text("🔐", fontSize = 32.sp) },
+        title = { Text(title, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(), fontSize = 17.sp) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("أدخل كلمة مرور المدرّس، أو مرّر بطاقته الخاصة.", color = Mut, fontSize = 13.sp)
+                AppField(
+                    password, { password = it; error = "" }, "كلمة مرور المدرّس",
+                    keyboard = KeyboardType.Password, visual = PasswordVisualTransformation()
+                )
+                Text("💳 بانتظار بطاقة المدرّس...", color = WarnC, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                // حقل صغير يستقبل القارئ الخارجي (لوحة مفاتيح)؛ NFC الهاتف يعمل بدونه
+                AppField(
+                    cardText, { cardText = it.uppercase().filter { c -> c.isLetterOrDigit() } }, "رقم البطاقة",
+                    Modifier.focusRequester(cardFocus).onPreviewKeyEvent { e ->
+                        if ((e.key == Key.Enter || e.key == Key.NumPadEnter) && e.type == KeyEventType.KeyDown) {
+                            if (cardText.isNotBlank()) { vm.onCardUid(cardText); cardText = "" }
+                            true
+                        } else false
+                    }
+                )
+                if (error.isNotBlank()) Text(error, color = BadC, fontSize = 13.sp)
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = !busy && password.isNotEmpty(), onClick = {
+                busy = true
+                vm.confirmWithPassword(password) { ok ->
+                    busy = false
+                    if (ok) grant() else { error = "كلمة المرور غير صحيحة"; password = "" }
+                }
+            }) { Text("تأكيد الحذف", color = BadC, fontWeight = FontWeight.Bold) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("إلغاء") } }
+    )
 }

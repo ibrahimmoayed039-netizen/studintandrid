@@ -28,6 +28,7 @@ fun LoginScreen(vm: MainViewModel) {
     var password by rememberSaveable { mutableStateOf("") }
     var error by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
+    val notice by vm.logoutNotice.collectAsState()
 
     Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding(), contentAlignment = Alignment.Center) {
         Column(
@@ -41,6 +42,7 @@ fun LoginScreen(vm: MainViewModel) {
             ) { Text("🎓", fontSize = 44.sp) }
             Text("حضور الطلبة", fontSize = 30.sp, fontWeight = FontWeight.ExtraBold)
             Text("سجّل الدخول للمتابعة", color = Mut)
+            if (notice.isNotBlank()) Text("🔒 $notice", color = OkC, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
             GlassCard {
                 AppField(username, { username = it; error = "" }, "اسم المستخدم")
                 AppField(password, { password = it; error = "" }, "كلمة المرور", keyboard = KeyboardType.Password, visual = PasswordVisualTransformation())

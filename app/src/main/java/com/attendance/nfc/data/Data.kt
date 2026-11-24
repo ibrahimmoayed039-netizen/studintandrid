@@ -14,7 +14,9 @@ data class User(
     val role: String,           // admin | teacher
     val salt: String,
     val hash: String,
-    val createdAt: Long
+    val createdAt: Long,
+    /** بطاقة المدرّس الخاصة (UID) لتأكيد الحذف بدل كلمة المرور. فارغة = لا بطاقة. */
+    val cardUid: String = ""
 )
 
 @Entity(tableName = "students")
@@ -82,6 +84,9 @@ interface UserDao {
     @Query("SELECT * FROM users WHERE id = :id LIMIT 1")
     suspend fun byId(id: String): User?
 
+    @Query("SELECT * FROM users WHERE cardUid = :uid AND cardUid != '' LIMIT 1")
+    suspend fun byCard(uid: String): User?
+
     @Query("SELECT COUNT(*) FROM users")
     suspend fun count(): Int
 
@@ -135,6 +140,9 @@ interface ScheduleDao {
 
     @Query("SELECT * FROM schedule")
     suspend fun all(): List<ScheduleItem>
+
+    @Query("DELETE FROM schedule WHERE ownerId = :owner")
+    suspend fun deleteByOwner(owner: String)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(s: ScheduleItem)
@@ -220,9 +228,16 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
     }
 }
 
+/** ترحيل من الإصدار 2: إضافة بطاقة المدرّس. */
+val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE users ADD COLUMN cardUid TEXT NOT NULL DEFAULT ''")
+    }
+}
+
 @Database(
     entities = [User::class, Student::class, ScheduleItem::class, LectureSession::class, Attendance::class],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -236,7 +251,7 @@ abstract class AppDatabase : RoomDatabase() {
         @Volatile private var instance: AppDatabase? = null
         fun get(ctx: Context): AppDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(ctx.applicationContext, AppDatabase::class.java, "attendance.db")
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .build().also { instance = it }
         }
     }

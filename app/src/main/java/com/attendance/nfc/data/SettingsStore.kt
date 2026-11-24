@@ -13,7 +13,9 @@ data class AppSettings(
     val backupDays: Int = 30,
     val logoPath: String = "",
     /** فتح شاشة استقبال البطاقات (ملء الشاشة) تلقائياً لحظة بدء كل حصة. */
-    val autoReceive: Boolean = true
+    val autoReceive: Boolean = true,
+    /** تسجيل خروج تلقائي عند انتهاء الحصة (يدوياً أو تلقائياً) لمنع العبث بالبيانات. */
+    val autoLogout: Boolean = true
 )
 
 /** إعدادات محفوظة محلياً (SharedPreferences) وتبقى بعد إغلاق التطبيق. */
@@ -30,7 +32,8 @@ class SettingsStore(ctx: Context) {
         defaultLate = sp.getInt("late", 10),
         backupDays = sp.getInt("backupDays", 30),
         logoPath = sp.getString("logo", "") ?: "",
-        autoReceive = sp.getBoolean("autoReceive", true)
+        autoReceive = sp.getBoolean("autoReceive", true),
+        autoLogout = sp.getBoolean("autoLogout", true)
     )
 
     fun save(v: AppSettings) {
@@ -43,6 +46,7 @@ class SettingsStore(ctx: Context) {
             .putInt("backupDays", v.backupDays)
             .putString("logo", v.logoPath)
             .putBoolean("autoReceive", v.autoReceive)
+            .putBoolean("autoLogout", v.autoLogout)
             .apply()
         _flow.value = v
     }

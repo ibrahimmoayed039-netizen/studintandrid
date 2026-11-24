@@ -79,8 +79,8 @@ fun StudentsScreen(vm: MainViewModel) {
     if (creating) StudentDialog(vm, null, grades) { creating = false }
     editing?.let { StudentDialog(vm, it, grades) { editing = null } }
     deleting?.let { st ->
-        ConfirmDialog("حذف الطالب «${st.name}»؟ (يبقى سجل حضوره السابق)", "حذف",
-            onOk = { vm.deleteStudent(st.id); deleting = null }, onDismiss = { deleting = null })
+        AuthDialog(vm, "حذف الطالب «${st.name}» — يتطلب تأكيد المدرّس",
+            onGranted = { vm.deleteStudent(st.id); deleting = null }, onDismiss = { deleting = null })
     }
 }
 

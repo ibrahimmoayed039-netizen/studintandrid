@@ -33,7 +33,7 @@ object Backup {
         root.put("exportedAt", System.currentTimeMillis())
         root.put("settings", JSONObject()
             .put("school", settings.schoolName).put("auto", settings.autoSchedule)
-            .put("lecture", settings.lectureMin).put("break", settings.breakMin).put("late", settings.defaultLate).put("backupDays", settings.backupDays).put("logo", photoToB64(settings.logoPath)).put("autoReceive", settings.autoReceive))
+            .put("lecture", settings.lectureMin).put("break", settings.breakMin).put("late", settings.defaultLate).put("backupDays", settings.backupDays).put("logo", photoToB64(settings.logoPath)).put("autoReceive", settings.autoReceive).put("autoLogout", settings.autoLogout))
 
         val students = JSONArray()
         db.studentDao().all().forEach { s ->
@@ -69,7 +69,7 @@ object Backup {
         val users = JSONArray()
         db.userDao().all().forEach { u ->
             users.put(JSONObject().put("id", u.id).put("username", u.username).put("name", u.name)
-                .put("role", u.role).put("salt", u.salt).put("hash", u.hash).put("createdAt", u.createdAt))
+                .put("role", u.role).put("salt", u.salt).put("hash", u.hash).put("createdAt", u.createdAt).put("cardUid", u.cardUid))
         }
         root.put("users", users)
         root.toString(2)
@@ -103,7 +103,7 @@ object Backup {
         }
         val users = root.optJSONArray("users").mapObjects { o ->
             User(o.getString("id"), o.getString("username"), o.optString("name"), o.optString("role", "teacher"),
-                o.getString("salt"), o.getString("hash"), o.optLong("createdAt"))
+                o.getString("salt"), o.getString("hash"), o.optLong("createdAt"), o.optString("cardUid"))
         }
 
         db.withTransaction {
@@ -116,7 +116,7 @@ object Backup {
 
         val st = root.optJSONObject("settings")
         if (st == null) AppSettings() else AppSettings(
-            st.optString("school", "حضور الطلبة"), st.optBoolean("auto"), st.optInt("lecture", 45), st.optInt("break", 10), st.optInt("late", 10), st.optInt("backupDays", 30), b64ToPhoto(ctx, st.optString("logo")), st.optBoolean("autoReceive", true)
+            st.optString("school", "حضور الطلبة"), st.optBoolean("auto"), st.optInt("lecture", 45), st.optInt("break", 10), st.optInt("late", 10), st.optInt("backupDays", 30), b64ToPhoto(ctx, st.optString("logo")), st.optBoolean("autoReceive", true), st.optBoolean("autoLogout", true)
         )
     }
 }

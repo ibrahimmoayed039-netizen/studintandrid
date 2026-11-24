@@ -15,8 +15,8 @@ android {
         targetSdk = 34
         // رقم الإصدار يزيد تلقائياً مع كل بناء على GitHub Actions ليتحدّث التطبيق فوق النسخة القديمة
         val ci = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
-        versionCode = if (ci != null) 1000 + ci else 2
-        versionName = if (ci != null) "1.1.$ci" else "1.1"
+        versionCode = if (ci != null) 1000 + ci else 3
+        versionName = if (ci != null) "1.2.$ci" else "1.2"
     }
 
     // مفتاح توقيع ثابت: الأندرويد لا يقبل التحديث فوق النسخة إلا إذا كان التوقيع نفسه

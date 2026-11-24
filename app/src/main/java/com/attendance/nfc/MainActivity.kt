@@ -37,6 +37,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         nfc = NfcAdapter.getDefaultAdapter(this)
+        if (com.attendance.nfc.data.LanPrefs(this).enabled) LanService.sync(this)
         setContent { AttendanceTheme { AppRoot(vm, nfcStatus) } }
     }
 

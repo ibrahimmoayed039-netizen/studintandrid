@@ -41,7 +41,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val timeFmt = DateTimeFormatter.ofPattern("HH:mm")
 
     val settings: StateFlow<AppSettings> = settingsStore.flow
-    val auditStore = AuditStore(app)
+    val auditStore = AuditStore.get(app)
     val audit: StateFlow<List<AuditEntry>> = auditStore.flow
     private fun log(action: String, detail: String = "") =
         auditStore.add(_currentUser.value?.name ?: "النظام", action, detail)
@@ -57,6 +57,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             if (o.schoolName != v.schoolName) add("الاسم: ${o.schoolName} ← ${v.schoolName}")
             if (o.autoSchedule != v.autoSchedule) add("التشغيل التلقائي: ${if (v.autoSchedule) "مفعّل" else "معطّل"}")
             if (o.autoReceive != v.autoReceive) add("شاشة الاستقبال التلقائية: ${if (v.autoReceive) "مفعّلة" else "معطّلة"}")
+            if (o.autoLogout != v.autoLogout) add("الخروج التلقائي عند نهاية الحصة: ${if (v.autoLogout) "مفعّل" else "معطّل"}")
             if (o.lectureMin != v.lectureMin) add("مدة الحصة: ${o.lectureMin} ← ${v.lectureMin}")
             if (o.breakMin != v.breakMin) add("مدة الاستراحة: ${o.breakMin} ← ${v.breakMin}")
             if (o.defaultLate != v.defaultLate) add("التأخير: ${o.defaultLate} ← ${v.defaultLate}")
@@ -69,6 +70,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     // ---------------- المصادقة ----------------
     private val _currentUser = MutableStateFlow<User?>(null)
     val currentUser: StateFlow<User?> = _currentUser
+    /** رسالة تظهر في شاشة الدخول بعد الخروج التلقائي. */
+    private val _logoutNotice = MutableStateFlow("")
+    val logoutNotice: StateFlow<String> = _logoutNotice
+
     private val _authReady = MutableStateFlow(false)
     val authReady: StateFlow<Boolean> = _authReady
     val users = db.userDao().observeAll().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -110,6 +115,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     /** عند تفعيلها، تُوجَّه أول بطاقة تُمسح إلى نموذج الطالب بدل تسجيل الحضور. */
     val cardCapture = MutableStateFlow(false)
+
+    // تأكيد العمليات الحساسة (حذف طالب/سجل حضور): كلمة مرور المدرّس أو بطاقته الخاصة
+    val authWaiting = MutableStateFlow(false)
+    private val _authGranted = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val authGranted: SharedFlow<Unit> = _authGranted
+    private val _authDenied = MutableSharedFlow<String>(extraBufferCapacity = 4)
+    val authDenied: SharedFlow<String> = _authDenied
     private val _captured = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val captured: SharedFlow<String> = _captured
 
@@ -152,6 +164,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val ok = u != null && withContext(Dispatchers.Default) { Passwords.verify(password, u.salt, u.hash) }
             if (ok && u != null) {
                 _currentUser.value = u
+                _logoutNotice.value = ""
                 authPrefs.edit().putString("uid", u.id).apply()
                 log("تسجيل دخول")
             }
@@ -159,39 +172,64 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun logout() {
-        log("تسجيل خروج")
+    fun logout(auto: Boolean = false) {
+        log(if (auto) "تسجيل خروج تلقائي (انتهاء الحصة)" else "تسجيل خروج")
         _currentUser.value = null
         authPrefs.edit().remove("uid").apply()
         cardCapture.value = false
+        authWaiting.value = false
         _scan.value = ScanUi()
+        if (auto) _logoutNotice.value = "انتهت الحصة وتم تسجيل الخروج تلقائياً"
+    }
+
+    /** يتحقق من كلمة مرور المستخدم الحالي (أو أي مدير) قبل عملية حذف. */
+    fun confirmWithPassword(password: String, onResult: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            val me = _currentUser.value
+            val candidates = users.value.filter { it.id == me?.id || it.role == "admin" }
+            val ok = password.isNotEmpty() &&
+                withContext(Dispatchers.Default) { candidates.any { Passwords.verify(password, it.salt, it.hash) } }
+            log(if (ok) "تأكيد عملية حذف بكلمة المرور" else "محاولة فاشلة لتأكيد حذف", if (ok) "" else "كلمة مرور خاطئة")
+            onResult(ok)
+        }
+    }
+
+    /** يمنع تكرار بطاقة بين الطلاب والمستخدمين. يُرجع رسالة الخطأ أو null. */
+    private suspend fun cardConflict(uid: String, exceptUserId: String): String? {
+        if (uid.isBlank()) return null
+        db.studentDao().byCard(uid)?.let { return "هذه البطاقة مسجّلة للطالب ${it.name}" }
+        db.userDao().byCard(uid)?.let { if (it.id != exceptUserId) return "هذه البطاقة مسجّلة للمستخدم ${it.name}" }
+        return null
     }
 
     // ---------------- المستخدمون (للمدير) ----------------
     private fun roleOf(r: String) = if (r == "admin") "admin" else "teacher"
 
-    fun createUser(username: String, password: String, name: String, role: String, onResult: (String?) -> Unit) {
+    fun createUser(username: String, password: String, name: String, role: String, cardUid: String, onResult: (String?) -> Unit) {
         viewModelScope.launch {
             val un = username.trim()
             if (un.isEmpty() || password.isEmpty()) return@launch onResult("أدخل اسم المستخدم وكلمة المرور")
             if (db.userDao().byUsername(un) != null) return@launch onResult("اسم المستخدم مستخدم بالفعل")
+            cardConflict(cardUid.trim(), "")?.let { return@launch onResult(it) }
             val salt = Passwords.newSalt()
             val hash = withContext(Dispatchers.Default) { Passwords.hash(password, salt) }
-            db.userDao().upsert(User(UUID.randomUUID().toString(), un, name.trim().ifEmpty { un }, roleOf(role), salt, hash, System.currentTimeMillis()))
-            log("إنشاء مستخدم", "@$un (${if (roleOf(role) == "admin") "مدير" else "مدرّس"})")
+            db.userDao().upsert(User(UUID.randomUUID().toString(), un, name.trim().ifEmpty { un }, roleOf(role), salt, hash, System.currentTimeMillis(), cardUid.trim()))
+            log("إنشاء مستخدم", "@$un (${if (roleOf(role) == "admin") "مدير" else "مدرّس"})" + if (cardUid.isNotBlank()) " — مع بطاقة" else "")
             onResult(null)
         }
     }
 
-    fun updateUser(id: String, name: String, role: String, onResult: (String?) -> Unit) {
+    fun updateUser(id: String, name: String, role: String, cardUid: String, onResult: (String?) -> Unit) {
         viewModelScope.launch {
             val u = db.userDao().byId(id) ?: return@launch onResult("المستخدم غير موجود")
             val newRole = roleOf(role)
             if (u.role == "admin" && newRole != "admin" && db.userDao().adminCount() <= 1) return@launch onResult("لا يمكن إزالة صلاحية آخر مدير")
-            val nu = u.copy(name = name.trim().ifEmpty { u.username }, role = newRole)
+            cardConflict(cardUid.trim(), id)?.let { return@launch onResult(it) }
+            val nu = u.copy(name = name.trim().ifEmpty { u.username }, role = newRole, cardUid = cardUid.trim())
             db.userDao().upsert(nu)
             if (_currentUser.value?.id == id) _currentUser.value = nu
-            log("تعديل مستخدم", "@${u.username}: ${u.name} (${u.role}) ← ${nu.name} (${nu.role})")
+            log("تعديل مستخدم", "@${u.username}: ${u.name} (${u.role}) ← ${nu.name} (${nu.role})" +
+                if (u.cardUid != nu.cardUid) " • بطاقة المدرّس: ${if (nu.cardUid.isBlank()) "أُزيلت" else "عُيّنت/تغيّرت"}" else "")
             onResult(null)
         }
     }
@@ -229,6 +267,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 feedback(true)
                 return@launch
             }
+            if (authWaiting.value) {
+                val t = db.userDao().byCard(uid)
+                if (t != null) {
+                    authWaiting.value = false
+                    log("تأكيد عملية حذف ببطاقة المدرّس", t.name)
+                    _authGranted.emit(Unit)
+                    feedback(true)
+                } else {
+                    log("محاولة فاشلة لتأكيد حذف", "بطاقة غير مصرّح بها")
+                    _authDenied.emit("هذه ليست بطاقة مدرّس")
+                    feedback(false)
+                }
+                return@launch
+            }
             val ses = db.sessionDao().getActiveFor(u.id, allFlag(u))
             if (ses == null) {
                 show(ScanUi(ScanKind.BAD, "لا توجد محاضرة نشطة", "ابدأ محاضرة ثم مرّر البطاقة"))
@@ -236,6 +288,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
             val st = db.studentDao().byCard(uid)
             if (st == null) {
+                val tu = db.userDao().byCard(uid)
+                if (tu != null) {
+                    show(ScanUi(ScanKind.BAD, "بطاقة مدرّس", "${tu.name} — تُستخدم لتأكيد الحذف فقط"))
+                    feedback(false); return@launch
+                }
                 show(ScanUi(ScanKind.BAD, "بطاقة غير مسجّلة", uid))
                 feedback(false); return@launch
             }
@@ -330,6 +387,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val s = db.sessionDao().getActiveFor(u.id, allFlag(u)) ?: return@launch
             db.sessionDao().upsert(s.copy(active = false, endTs = System.currentTimeMillis()))
             log("إنهاء محاضرة", s.subject)
+            // نهاية الحصة: تسجيل خروج حتى لا يتمكن أحد من العبث بالبيانات
+            if (settings.value.autoLogout) logout(auto = true)
         }
     }
 
@@ -349,6 +408,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             if (item != null && (mine.date != today || nm >= toMin(entryEnd(item, lm)))) {
                 sdao.upsert(mine.copy(active = false, endTs = System.currentTimeMillis()))
                 log("إنهاء محاضرة تلقائياً", mine.subject)
+                if (settings.value.autoLogout) { logout(auto = true); return }
                 toast("انتهت محاضرة «${mine.subject}» تلقائياً")
             }
         }
@@ -372,6 +432,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             if (s.cardUid.isNotBlank()) {
                 val ex = db.studentDao().byCard(s.cardUid)
                 if (ex != null && ex.id != s.id) { toast("هذه البطاقة مسجّلة للطالب ${ex.name}"); onResult(false); return@launch }
+                val tu = db.userDao().byCard(s.cardUid)
+                if (tu != null) { toast("هذه البطاقة مخصّصة للمدرّس ${tu.name}"); onResult(false); return@launch }
             }
             val old = db.studentDao().all().find { it.id == s.id }
             db.studentDao().upsert(s)
@@ -395,7 +457,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 val rows = withContext(Dispatchers.IO) { StudentImport.parse(getApplication(), uri) }
                 if (rows.isEmpty()) { toast("لم يُعثر على أي صف باسم طالب في الملف"); return@launch }
-                val used = db.studentDao().all().map { it.cardUid }.filter { it.isNotBlank() }.toMutableSet()
+                val used = (db.studentDao().all().map { it.cardUid } + db.userDao().all().map { it.cardUid }).filter { it.isNotBlank() }.toMutableSet()
                 var conflicts = 0
                 val list = rows.map { r ->
                     var uid = r.cardUid

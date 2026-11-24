@@ -49,5 +49,12 @@ class AuditStore(ctx: Context) {
         try { file.writeText(newestFirst.reversed().joinToString("") { line(it) + "\n" }, Charsets.UTF_8) } catch (_: Exception) {}
     }
 
-    companion object { const val MAX = 5000 }
+    companion object {
+        const val MAX = 5000
+        @Volatile private var inst: AuditStore? = null
+        /** نسخة واحدة للتطبيق كله ليشاركها الخادم والواجهة. */
+        fun get(ctx: Context): AuditStore = inst ?: synchronized(this) {
+            inst ?: AuditStore(ctx.applicationContext).also { inst = it }
+        }
+    }
 }
