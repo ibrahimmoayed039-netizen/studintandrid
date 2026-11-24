@@ -139,6 +139,8 @@ private fun MainShell(vm: MainViewModel, nfcStatus: Int, user: User) {
     val view = LocalView.current
 
     LaunchedEffect(Unit) { vm.toasts.collect { snackbar.showSnackbar(it) } }
+    // لحظة بدء أي حصة (يدوي أو من الجدول) تُفتح شاشة استقبال البطاقات تلقائياً
+    LaunchedEffect(Unit) { vm.sessionStarted.collect { kiosk = true } }
     SideEffect { view.keepScreenOn = active != null }
 
     Box(Modifier.fillMaxSize()) {

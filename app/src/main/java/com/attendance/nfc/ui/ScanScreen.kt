@@ -358,6 +358,18 @@ fun KioskScreen(vm: MainViewModel, onExit: () -> Unit) {
             Text(scan.sub, fontSize = 20.sp, color = Txt, textAlign = TextAlign.Center)
         }
         Column(Modifier.align(Alignment.BottomCenter), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            // المهلة المتبقية قبل احتساب التأخير + آخر 4 طلاب سُجّلوا
+            val lateLeft = s.lateMin - ((System.currentTimeMillis() - s.startTs) / 60_000L).toInt()
+            Text(
+                if (lateLeft > 0) "⏳ باقي $lateLeft د قبل احتساب التأخير" else "⏰ انتهت مهلة الحضور — التسجيل الآن «متأخر»",
+                color = if (lateLeft > 0) Mut else WarnC, fontSize = 14.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()
+            )
+            if (att.isNotEmpty()) {
+                Text(
+                    "آخر المسجّلين: " + att.take(4).joinToString(" • ") { it.studentName },
+                    color = Mut, fontSize = 13.sp, maxLines = 2, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()
+                )
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 StatBox(c.present, "حاضر", OkC, Modifier.weight(1f))
                 StatBox(c.late, "متأخر", WarnC, Modifier.weight(1f))

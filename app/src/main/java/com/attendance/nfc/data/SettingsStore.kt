@@ -11,7 +11,9 @@ data class AppSettings(
     val breakMin: Int = 10,
     val defaultLate: Int = 10,
     val backupDays: Int = 30,
-    val logoPath: String = ""
+    val logoPath: String = "",
+    /** فتح شاشة استقبال البطاقات (ملء الشاشة) تلقائياً لحظة بدء كل حصة. */
+    val autoReceive: Boolean = true
 )
 
 /** إعدادات محفوظة محلياً (SharedPreferences) وتبقى بعد إغلاق التطبيق. */
@@ -27,7 +29,8 @@ class SettingsStore(ctx: Context) {
         breakMin = sp.getInt("break", 10),
         defaultLate = sp.getInt("late", 10),
         backupDays = sp.getInt("backupDays", 30),
-        logoPath = sp.getString("logo", "") ?: ""
+        logoPath = sp.getString("logo", "") ?: "",
+        autoReceive = sp.getBoolean("autoReceive", true)
     )
 
     fun save(v: AppSettings) {
@@ -39,6 +42,7 @@ class SettingsStore(ctx: Context) {
             .putInt("late", v.defaultLate)
             .putInt("backupDays", v.backupDays)
             .putString("logo", v.logoPath)
+            .putBoolean("autoReceive", v.autoReceive)
             .apply()
         _flow.value = v
     }

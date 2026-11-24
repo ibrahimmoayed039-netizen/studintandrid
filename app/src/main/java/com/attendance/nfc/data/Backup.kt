@@ -33,7 +33,7 @@ object Backup {
         root.put("exportedAt", System.currentTimeMillis())
         root.put("settings", JSONObject()
             .put("school", settings.schoolName).put("auto", settings.autoSchedule)
-            .put("lecture", settings.lectureMin).put("break", settings.breakMin).put("late", settings.defaultLate).put("backupDays", settings.backupDays).put("logo", photoToB64(settings.logoPath)))
+            .put("lecture", settings.lectureMin).put("break", settings.breakMin).put("late", settings.defaultLate).put("backupDays", settings.backupDays).put("logo", photoToB64(settings.logoPath)).put("autoReceive", settings.autoReceive))
 
         val students = JSONArray()
         db.studentDao().all().forEach { s ->
@@ -116,7 +116,7 @@ object Backup {
 
         val st = root.optJSONObject("settings")
         if (st == null) AppSettings() else AppSettings(
-            st.optString("school", "حضور الطلبة"), st.optBoolean("auto"), st.optInt("lecture", 45), st.optInt("break", 10), st.optInt("late", 10), st.optInt("backupDays", 30), b64ToPhoto(ctx, st.optString("logo"))
+            st.optString("school", "حضور الطلبة"), st.optBoolean("auto"), st.optInt("lecture", 45), st.optInt("break", 10), st.optInt("late", 10), st.optInt("backupDays", 30), b64ToPhoto(ctx, st.optString("logo")), st.optBoolean("autoReceive", true)
         )
     }
 }

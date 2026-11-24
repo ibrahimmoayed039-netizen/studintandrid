@@ -56,6 +56,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val ch = buildList {
             if (o.schoolName != v.schoolName) add("الاسم: ${o.schoolName} ← ${v.schoolName}")
             if (o.autoSchedule != v.autoSchedule) add("التشغيل التلقائي: ${if (v.autoSchedule) "مفعّل" else "معطّل"}")
+            if (o.autoReceive != v.autoReceive) add("شاشة الاستقبال التلقائية: ${if (v.autoReceive) "مفعّلة" else "معطّلة"}")
             if (o.lectureMin != v.lectureMin) add("مدة الحصة: ${o.lectureMin} ← ${v.lectureMin}")
             if (o.breakMin != v.breakMin) add("مدة الاستراحة: ${o.breakMin} ← ${v.breakMin}")
             if (o.defaultLate != v.defaultLate) add("التأخير: ${o.defaultLate} ← ${v.defaultLate}")
@@ -111,6 +112,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val cardCapture = MutableStateFlow(false)
     private val _captured = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val captured: SharedFlow<String> = _captured
+
+    /** يُطلق لحظة بدء حصة جديدة (يدوياً أو من الجدول) لفتح شاشة استقبال البطاقات تلقائياً. */
+    private val _sessionStarted = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val sessionStarted: SharedFlow<String> = _sessionStarted
 
     val toasts = MutableSharedFlow<String>(extraBufferCapacity = 8)
     private fun toast(msg: String) { toasts.tryEmit(msg) }
@@ -316,6 +321,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             )
         )
         log("بدء محاضرة", subject + (if (grp.isNotBlank()) " ($grp)" else "") + (if (scheduleId.isNotEmpty()) " — من الجدول" else ""))
+        if (settings.value.autoReceive) _sessionStarted.tryEmit(subject)
     }
 
     fun endSession() {

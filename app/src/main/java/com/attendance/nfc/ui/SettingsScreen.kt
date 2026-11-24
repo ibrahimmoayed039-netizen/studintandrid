@@ -22,6 +22,7 @@ fun SettingsScreen(vm: MainViewModel) {
     val s by vm.settings.collectAsState()
     var school by remember(s) { mutableStateOf(s.schoolName) }
     var auto by remember(s) { mutableStateOf(s.autoSchedule) }
+    var autoReceive by remember(s) { mutableStateOf(s.autoReceive) }
     var lecture by remember(s) { mutableStateOf(s.lectureMin.toString()) }
     var brk by remember(s) { mutableStateOf(s.breakMin.toString()) }
     var late by remember(s) { mutableStateOf(s.defaultLate.toString()) }
@@ -53,6 +54,11 @@ fun SettingsScreen(vm: MainViewModel) {
                 }
             }
             AppField(late, { late = it.filter { c -> c.isDigit() } }, "التأخير الافتراضي (دقيقة)", keyboard = KeyboardType.Number)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("فتح شاشة استقبال البطاقات تلقائياً عند بدء الحصة", modifier = Modifier.weight(1f))
+                Switch(checked = autoReceive, onCheckedChange = { autoReceive = it })
+            }
+            Text("تظهر شاشة كاملة (اسم المادة، العدّاد، آخر الطلاب) جاهزة لاستقبال البطاقات لحظة بدء أي حصة، سواء بدأت تلقائياً من الجدول أو يدوياً.", color = Mut, fontSize = 12.sp)
         }
         GlassCard {
             SectionTitle("التشغيل التلقائي للمحاضرات (اختياري)")
@@ -69,7 +75,7 @@ fun SettingsScreen(vm: MainViewModel) {
         }
         Btn3D("💾 حفظ الإعدادات", {
             vm.saveSettings(s.copy(
-                schoolName = school.trim().ifBlank { "حضور الطلبة" }, autoSchedule = auto,
+                schoolName = school.trim().ifBlank { "حضور الطلبة" }, autoSchedule = auto, autoReceive = autoReceive,
                 lectureMin = (lecture.toIntOrNull() ?: 45).coerceAtLeast(5), breakMin = (brk.toIntOrNull() ?: 10).coerceAtLeast(0),
                 defaultLate = late.toIntOrNull() ?: 10, backupDays = (bkDays.toIntOrNull() ?: 30).coerceAtLeast(1)))
             vm.showToast("تم حفظ الإعدادات")
