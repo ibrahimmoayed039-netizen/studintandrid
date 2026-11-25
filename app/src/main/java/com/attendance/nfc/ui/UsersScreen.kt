@@ -23,6 +23,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.attendance.nfc.MainViewModel
+import com.attendance.nfc.cardJoin
+import com.attendance.nfc.cardList
 import com.attendance.nfc.data.User
 
 @Composable
@@ -49,7 +51,7 @@ fun UsersScreen(vm: MainViewModel) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Column(Modifier.weight(1f)) {
                         Text(u.name + if (u.id == me?.id) " (أنت)" else "", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                        Text("@${u.username}" + if (u.cardUid.isNotBlank()) "  •  💳 بطاقة مسجّلة" else "", color = Mut, fontSize = 13.sp)
+                        Text("@${u.username}" + if (u.cardUid.isNotBlank()) "  •  💳 ${cardList(u.cardUid).size} بطاقة" else "", color = Mut, fontSize = 13.sp)
                     }
                     Badge(if (u.role == "admin") "مدير" else "مدرّس", if (u.role == "admin") Pri2 else InfoC)
                 }
@@ -79,7 +81,13 @@ private fun UserDialog(vm: MainViewModel, initial: User?, onDismiss: () -> Unit)
     var name by remember { mutableStateOf(initial?.name ?: "") }
     var role by remember { mutableStateOf(initial?.role ?: "teacher") }
     var password by remember { mutableStateOf("") }
-    var card by remember { mutableStateOf(initial?.cardUid ?: "") }
+    val cards = remember { mutableStateListOf<String>().apply { addAll(cardList(initial?.cardUid ?: "")) } }
+    var card by remember { mutableStateOf("") }
+    fun addCard(raw: String) {
+        val c = raw.uppercase().filter { it.isLetterOrDigit() }
+        if (c.isNotBlank() && c !in cards) cards.add(c)
+        card = ""
+    }
     var error by remember { mutableStateOf("") }
     val waiting by vm.cardCapture.collectAsState()
     val cardFocus = remember { FocusRequester() }
@@ -89,7 +97,7 @@ private fun UserDialog(vm: MainViewModel, initial: User?, onDismiss: () -> Unit)
     LaunchedEffect(waiting) {
         if (waiting) { try { cardFocus.requestFocus() } catch (_: Exception) {}; keyboard?.hide() }
     }
-    LaunchedEffect(Unit) { vm.captured.collect { card = it } }
+    LaunchedEffect(Unit) { vm.captured.collect { addCard(it) } }
     DisposableEffect(Unit) { onDispose { vm.cardCapture.value = false } }
 
     AlertDialog(
@@ -105,25 +113,35 @@ private fun UserDialog(vm: MainViewModel, initial: User?, onDismiss: () -> Unit)
                     FilterChip(selected = role == "admin", onClick = { role = "admin" }, label = { Text("مدير") })
                 }
                 if (initial == null) AppField(password, { password = it }, "كلمة المرور", visual = PasswordVisualTransformation())
-                Text("بطاقة المدرّس الخاصة (اختياري) — لتأكيد الحذف", color = Mut, fontSize = 12.sp)
+                Text("بطاقات المدرّسين (اختياري) — يمكن إضافة أكثر من بطاقة لنفس المستخدم، وأي بطاقة منها تؤكّد الحذف", color = Mut, fontSize = 12.sp)
+                cards.toList().forEach { c ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("💳 $c", Modifier.weight(1f), fontSize = 14.sp)
+                        TextButton(onClick = { cards.remove(c) }) { Text("إزالة", color = BadC) }
+                    }
+                }
                 AppField(
-                    card, { card = it.uppercase().filter { c -> c.isLetterOrDigit() } }, "رقم البطاقة (UID)",
+                    card, { card = it.uppercase().filter { c -> c.isLetterOrDigit() } }, "رقم بطاقة (UID)",
                     Modifier.focusRequester(cardFocus).onPreviewKeyEvent { e ->
                         if ((e.key == Key.Enter || e.key == Key.NumPadEnter) && e.type == KeyEventType.KeyDown) {
-                            if (card.isNotBlank()) vm.cardCapture.value = false
+                            if (card.isNotBlank()) addCard(card)
+                            vm.cardCapture.value = false
                             true
                         } else false
                     }
                 )
-                CardReadButton(waiting, card.isNotBlank(), { if (!waiting) card = ""; vm.cardCapture.value = !waiting })
+                if (card.isNotBlank()) TextButton(onClick = { addCard(card) }) { Text("➕ إضافة هذا الرقم") }
+                CardReadButton(waiting, false, { vm.cardCapture.value = !waiting })
                 if (error.isNotBlank()) Text(error, color = BadC)
             }
         },
         confirmButton = {
             TextButton(onClick = {
                 val done: (String?) -> Unit = { err -> if (err == null) onDismiss() else error = err }
-                if (initial == null) vm.createUser(username, password, name, role, card, done)
-                else vm.updateUser(initial.id, name, role, card, done)
+                if (card.isNotBlank()) addCard(card)
+                val joined = cardJoin(cards.toList())
+                if (initial == null) vm.createUser(username, password, name, role, joined, done)
+                else vm.updateUser(initial.id, name, role, joined, done)
             }) { Text("حفظ", fontWeight = FontWeight.Bold) }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("إلغاء") } }

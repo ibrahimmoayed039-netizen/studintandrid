@@ -15,7 +15,7 @@ data class User(
     val salt: String,
     val hash: String,
     val createdAt: Long,
-    /** بطاقة المدرّس الخاصة (UID) لتأكيد الحذف بدل كلمة المرور. فارغة = لا بطاقة. */
+    /** بطاقات المدرّسين (UID) لتأكيد الحذف بدل كلمة المرور؛ عدة بطاقات مفصولة بفاصلة لمستخدم واحد. فارغة = لا بطاقة. */
     val cardUid: String = ""
 )
 
@@ -84,7 +84,7 @@ interface UserDao {
     @Query("SELECT * FROM users WHERE id = :id LIMIT 1")
     suspend fun byId(id: String): User?
 
-    @Query("SELECT * FROM users WHERE cardUid = :uid AND cardUid != '' LIMIT 1")
+    @Query("SELECT * FROM users WHERE cardUid != '' AND :uid != '' AND (',' || cardUid || ',') LIKE '%,' || :uid || ',%' LIMIT 1")
     suspend fun byCard(uid: String): User?
 
     @Query("SELECT COUNT(*) FROM users")
@@ -192,6 +192,12 @@ interface SessionDao {
 interface AttendanceDao {
     @Query("SELECT * FROM attendance WHERE sessionId = :sid ORDER BY time DESC")
     fun observeForSession(sid: String): Flow<List<Attendance>>
+
+    @Query("SELECT * FROM attendance WHERE sessionId = :sid ORDER BY time DESC")
+    suspend fun forSession(sid: String): List<Attendance>
+
+    @Query("SELECT * FROM attendance WHERE date >= :from AND date <= :to")
+    suspend fun between(from: String, to: String): List<Attendance>
 
     @Query("SELECT * FROM attendance WHERE date = :date ORDER BY time DESC")
     fun observeByDate(date: String): Flow<List<Attendance>>

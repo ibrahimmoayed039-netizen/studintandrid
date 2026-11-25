@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.withTransaction
 import com.attendance.nfc.DAY_NAMES
 import com.attendance.nfc.entryEnd
+import com.attendance.nfc.fromMin
 import com.attendance.nfc.toMin
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -179,6 +180,8 @@ class LanServer(private val ctx: Context, private val port: Int, private val tok
         val who = "الحاسوب ($ip)"
         return runBlocking {
             when {
+                method == "GET" && path == "/api/live" -> live()
+                method == "POST" && path == "/api/report" -> report(JSONObject(body), who)
                 method == "GET" && path == "/api/schedule" -> listAll()
                 method == "POST" && path == "/api/schedule/save" -> save(JSONObject(body), who)
                 method == "POST" && path == "/api/schedule/delete" -> delete(JSONObject(body), who)
@@ -204,6 +207,66 @@ class LanServer(private val ctx: Context, private val port: Int, private val tok
             .forEach { items.put(itemJson(it, lm)) }
         return JSONObject().put("ok", true).put("school", SettingsStore(ctx).flow.value.schoolName)
             .put("lectureMin", lm).put("users", users).put("items", items)
+    }
+
+    /** الحالة المباشرة: المحاضرات النشطة وأعداد الحضور والحصة القادمة ومراحل الطلاب في هذا الجهاز. */
+    private suspend fun live(): JSONObject {
+        val lm = lectureMin()
+        val now = java.time.LocalDateTime.now()
+        val nowMin = now.hour * 60 + now.minute
+        val students = db.studentDao().all()
+        val schedule = db.scheduleDao().all()
+        val sessions = JSONArray()
+        db.sessionDao().all().filter { it.active }.sortedBy { it.startTs }.forEach { ses ->
+            val recs = db.attendanceDao().forSession(ses.id)
+            val expected = students.count { ses.grp.isBlank() || it.grade == ses.grp }
+            val sched = schedule.find { it.id == ses.scheduleId }
+            val end = if (sched != null) entryEnd(sched, lm) else fromMin(toMin(ses.startTime) + lm)
+            val recent = JSONArray()
+            recs.take(5).forEach { recent.put(JSONObject().put("name", it.studentName).put("time", it.time).put("status", it.status)) }
+            sessions.put(JSONObject()
+                .put("id", ses.id).put("subject", ses.subject).put("group", ses.grp)
+                .put("start", ses.startTime).put("startTs", ses.startTs).put("end", end)
+                .put("teacherId", ses.createdBy).put("teacher", ses.createdByName)
+                .put("present", recs.count { it.status == "present" }).put("late", recs.count { it.status == "late" })
+                .put("expected", expected).put("recent", recent))
+        }
+        val today = now.dayOfWeek.value % 7   // الأحد = 0
+        val next = schedule.filter { it.day == today && toMin(it.startTime) > nowMin }.minByOrNull { toMin(it.startTime) }
+        val nextJson = next?.let {
+            JSONObject().put("subject", it.subject).put("group", it.grp).put("start", it.startTime)
+                .put("teacher", db.userDao().byId(it.ownerId)?.name ?: "")
+        }
+        val grades = JSONArray()
+        students.filter { it.grade.isNotBlank() }.groupingBy { it.grade }.eachCount().toSortedMap()
+            .forEach { (g, c) -> grades.put(JSONObject().put("name", g).put("count", c)) }
+        return JSONObject().put("ok", true).put("school", SettingsStore(ctx).flow.value.schoolName)
+            .put("nowTs", System.currentTimeMillis()).put("now", fromMin(nowMin))
+            .put("totalStudents", students.size).put("grades", grades)
+            .put("sessions", sessions).put("next", nextJson ?: JSONObject.NULL)
+    }
+
+    private val dateRe = Regex("^\\d{4}-\\d{2}-\\d{2}$")
+
+    /** بيانات خام لتقرير الحضور في نطاق تواريخ: الطلاب والمحاضرات والسجلات. يحسب الحاسوب النِّسَب بنفس منطق التقرير الشهري. */
+    private suspend fun report(o: JSONObject, who: String): JSONObject {
+        val from = o.optString("from"); val to = o.optString("to")
+        if (!dateRe.matches(from) || !dateRe.matches(to) || from > to) throw HttpError(400, "نطاق التاريخ غير صالح")
+        val sessions = db.sessionDao().all().filter { it.date in from..to }
+        val ids = sessions.map { it.id }.toHashSet()
+        val att = db.attendanceDao().between(from, to).filter { it.sessionId in ids }
+        val students = JSONArray()
+        db.studentDao().all().forEach { students.put(JSONObject().put("id", it.id).put("name", it.name).put("grade", it.grade)) }
+        val ses = JSONArray()
+        sessions.forEach {
+            ses.put(JSONObject().put("id", it.id).put("subject", it.subject).put("group", it.grp)
+                .put("date", it.date).put("start", it.startTime).put("teacher", it.createdByName))
+        }
+        val recs = JSONArray()
+        att.forEach { recs.put(JSONArray().put(it.sessionId).put(it.studentId).put(if (it.status == "late") "l" else "p").put(it.time)) }
+        audit.add(who, "سحب تقرير", "$from ← $to: ${students.length()} طالب، ${ses.length()} محاضرة، ${recs.length()} سجل")
+        return JSONObject().put("ok", true).put("school", SettingsStore(ctx).flow.value.schoolName)
+            .put("from", from).put("to", to).put("students", students).put("sessions", ses).put("att", recs)
     }
 
     private val timeRe = Regex("^([01]\\d|2[0-3]):[0-5]\\d$")

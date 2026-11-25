@@ -70,3 +70,9 @@ fun buildMonthlyCsv(rows: List<MonthRow>): String {
     rows.forEach { sb.append("${q(it.name)},${q(it.grade)},${it.total},${it.present},${it.late},${it.absent},${if (it.total > 0) "${it.pct}%" else "-"}\n") }
     return sb.toString()
 }
+
+/** بطاقات المستخدم مخزّنة في حقل واحد مفصولة بفاصلة: يمكن لمستخدم واحد أن يملك عدة بطاقات (أكثر من أستاذ). */
+fun cardList(s: String): List<String> =
+    s.split(',', ';', '،', ' ', '\n', '\t').map { it.trim().uppercase() }.filter { it.isNotBlank() }.distinct()
+
+fun cardJoin(l: List<String>): String = l.joinToString(",")

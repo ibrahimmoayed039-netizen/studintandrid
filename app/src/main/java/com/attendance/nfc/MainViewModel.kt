@@ -195,10 +195,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** يمنع تكرار بطاقة بين الطلاب والمستخدمين. يُرجع رسالة الخطأ أو null. */
-    private suspend fun cardConflict(uid: String, exceptUserId: String): String? {
-        if (uid.isBlank()) return null
-        db.studentDao().byCard(uid)?.let { return "هذه البطاقة مسجّلة للطالب ${it.name}" }
-        db.userDao().byCard(uid)?.let { if (it.id != exceptUserId) return "هذه البطاقة مسجّلة للمستخدم ${it.name}" }
+    private suspend fun cardConflict(cards: String, exceptUserId: String): String? {
+        for (uid in cardList(cards)) {
+            db.studentDao().byCard(uid)?.let { return "البطاقة $uid مسجّلة للطالب ${it.name}" }
+            db.userDao().byCard(uid)?.let { if (it.id != exceptUserId) return "البطاقة $uid مسجّلة للمستخدم ${it.name}" }
+        }
         return null
     }
 
@@ -210,11 +211,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val un = username.trim()
             if (un.isEmpty() || password.isEmpty()) return@launch onResult("أدخل اسم المستخدم وكلمة المرور")
             if (db.userDao().byUsername(un) != null) return@launch onResult("اسم المستخدم مستخدم بالفعل")
-            cardConflict(cardUid.trim(), "")?.let { return@launch onResult(it) }
+            val cards = cardJoin(cardList(cardUid))
+            cardConflict(cards, "")?.let { return@launch onResult(it) }
             val salt = Passwords.newSalt()
             val hash = withContext(Dispatchers.Default) { Passwords.hash(password, salt) }
-            db.userDao().upsert(User(UUID.randomUUID().toString(), un, name.trim().ifEmpty { un }, roleOf(role), salt, hash, System.currentTimeMillis(), cardUid.trim()))
-            log("إنشاء مستخدم", "@$un (${if (roleOf(role) == "admin") "مدير" else "مدرّس"})" + if (cardUid.isNotBlank()) " — مع بطاقة" else "")
+            db.userDao().upsert(User(UUID.randomUUID().toString(), un, name.trim().ifEmpty { un }, roleOf(role), salt, hash, System.currentTimeMillis(), cards))
+            log("إنشاء مستخدم", "@$un (${if (roleOf(role) == "admin") "مدير" else "مدرّس"})" + if (cards.isNotBlank()) " — مع ${cardList(cards).size} بطاقة" else "")
             onResult(null)
         }
     }
@@ -224,12 +226,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val u = db.userDao().byId(id) ?: return@launch onResult("المستخدم غير موجود")
             val newRole = roleOf(role)
             if (u.role == "admin" && newRole != "admin" && db.userDao().adminCount() <= 1) return@launch onResult("لا يمكن إزالة صلاحية آخر مدير")
-            cardConflict(cardUid.trim(), id)?.let { return@launch onResult(it) }
-            val nu = u.copy(name = name.trim().ifEmpty { u.username }, role = newRole, cardUid = cardUid.trim())
+            val cards = cardJoin(cardList(cardUid))
+            cardConflict(cards, id)?.let { return@launch onResult(it) }
+            val nu = u.copy(name = name.trim().ifEmpty { u.username }, role = newRole, cardUid = cards)
             db.userDao().upsert(nu)
             if (_currentUser.value?.id == id) _currentUser.value = nu
             log("تعديل مستخدم", "@${u.username}: ${u.name} (${u.role}) ← ${nu.name} (${nu.role})" +
-                if (u.cardUid != nu.cardUid) " • بطاقة المدرّس: ${if (nu.cardUid.isBlank()) "أُزيلت" else "عُيّنت/تغيّرت"}" else "")
+                if (u.cardUid != nu.cardUid) " • بطاقات المدرّسين: ${if (nu.cardUid.isBlank()) "أُزيلت" else "${cardList(u.cardUid).size} ← ${cardList(nu.cardUid).size}"}" else "")
             onResult(null)
         }
     }
@@ -261,6 +264,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun onCardUid(uid: String) {
         viewModelScope.launch {
             val u = _currentUser.value ?: return@launch
+            if (uid.isBlank()) return@launch
             if (cardCapture.value) {
                 cardCapture.value = false
                 _captured.emit(uid)
@@ -457,7 +461,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 val rows = withContext(Dispatchers.IO) { StudentImport.parse(getApplication(), uri) }
                 if (rows.isEmpty()) { toast("لم يُعثر على أي صف باسم طالب في الملف"); return@launch }
-                val used = (db.studentDao().all().map { it.cardUid } + db.userDao().all().map { it.cardUid }).filter { it.isNotBlank() }.toMutableSet()
+                val used = (db.studentDao().all().map { it.cardUid } + db.userDao().all().flatMap { cardList(it.cardUid) }).filter { it.isNotBlank() }.toMutableSet()
                 var conflicts = 0
                 val list = rows.map { r ->
                     var uid = r.cardUid
