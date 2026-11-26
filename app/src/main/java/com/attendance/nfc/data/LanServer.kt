@@ -3,6 +3,8 @@ package com.attendance.nfc.data
 import android.content.Context
 import androidx.room.withTransaction
 import com.attendance.nfc.DAY_NAMES
+import com.attendance.nfc.cardJoin
+import com.attendance.nfc.cardList
 import com.attendance.nfc.entryEnd
 import com.attendance.nfc.fromMin
 import com.attendance.nfc.toMin
