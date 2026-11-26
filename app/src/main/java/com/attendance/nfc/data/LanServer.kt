@@ -182,6 +182,9 @@ class LanServer(private val ctx: Context, private val port: Int, private val tok
             when {
                 method == "GET" && path == "/api/live" -> live()
                 method == "POST" && path == "/api/report" -> report(JSONObject(body), who)
+                method == "GET" && path == "/api/users" -> usersList()
+                method == "POST" && path == "/api/users/save" -> userSave(JSONObject(body), who)
+                method == "POST" && path == "/api/users/delete" -> userDelete(JSONObject(body), who)
                 method == "GET" && path == "/api/schedule" -> listAll()
                 method == "POST" && path == "/api/schedule/save" -> save(JSONObject(body), who)
                 method == "POST" && path == "/api/schedule/delete" -> delete(JSONObject(body), who)
@@ -267,6 +270,77 @@ class LanServer(private val ctx: Context, private val port: Int, private val tok
         audit.add(who, "سحب تقرير", "$from ← $to: ${students.length()} طالب، ${ses.length()} محاضرة، ${recs.length()} سجل")
         return JSONObject().put("ok", true).put("school", SettingsStore(ctx).flow.value.schoolName)
             .put("from", from).put("to", to).put("students", students).put("sessions", ses).put("att", recs)
+    }
+
+    // ---------- المستخدمون ----------
+    private fun userJson(u: User) = JSONObject().put("id", u.id).put("username", u.username).put("name", u.name)
+        .put("role", u.role).put("cardUid", u.cardUid)
+
+    /** قائمة المستخدمين (بلا كلمات المرور أو التجزئة). */
+    private suspend fun usersList(): JSONObject {
+        val arr = JSONArray()
+        db.userDao().all().sortedBy { it.createdAt }.forEach { arr.put(userJson(it)) }
+        return JSONObject().put("ok", true).put("users", arr)
+    }
+
+    private val saltRe = Regex("^[0-9a-f]{32}$")
+    private val hashRe = Regex("^[0-9a-f]{64}$")
+
+    /**
+     * إنشاء/تحديث مستخدم. المفتاح هو اسم المستخدم (إن وُجد يُحدَّث وإلا يُنشأ).
+     * كلمة المرور: إمّا `password` نصاً (يجزّئها الهاتف) أو `salt`+`hash` جاهزتان (PBKDF2-SHA256، 100000 دورة) كي لا تُرسل كلمة المرور؛
+     * وإن لم يُرسل أيٌّ منهما يبقى الحساب الموجود على كلمة مروره. `cardUid` إن أُرسل يستبدل البطاقات.
+     */
+    private suspend fun userSave(o0: JSONObject, who: String): JSONObject {
+        val o = o0.optJSONObject("user") ?: o0
+        val username = o.optString("username").trim()
+        if (username.isEmpty() || username.length > 64) throw HttpError(400, "اسم المستخدم مطلوب")
+        val role = if (o.optString("role") == "admin") "admin" else "teacher"
+        val existing = db.userDao().byUsername(username)
+        if (existing != null && existing.role == "admin" && role != "admin" && db.userDao().adminCount() <= 1)
+            throw HttpError(409, "لا يمكن إزالة صلاحية آخر مدير في الهاتف")
+
+        val pw = o.optString("password")
+        val salt = o.optString("salt"); val hash = o.optString("hash")
+        val newCreds = pw.isNotEmpty() || salt.isNotEmpty() || hash.isNotEmpty()
+        val (nsalt, nhash) = when {
+            pw.isNotEmpty() -> { val s = Passwords.newSalt(); s to Passwords.hash(pw, s) }
+            salt.isNotEmpty() || hash.isNotEmpty() -> {
+                if (!saltRe.matches(salt) || !hashRe.matches(hash)) throw HttpError(400, "تجزئة كلمة المرور غير صالحة")
+                salt to hash
+            }
+            existing != null -> existing.salt to existing.hash
+            else -> throw HttpError(400, "كلمة المرور مطلوبة للمستخدم الجديد")
+        }
+
+        val cards = if (o.has("cardUid")) cardJoin(cardList(o.optString("cardUid"))) else (existing?.cardUid ?: "")
+        for (uid in cardList(cards)) {
+            db.studentDao().byCard(uid)?.let { throw HttpError(409, "البطاقة $uid مسجّلة للطالب ${it.name} في الهاتف") }
+            db.userDao().byCard(uid)?.let { if (it.id != existing?.id) throw HttpError(409, "البطاقة $uid مسجّلة للمستخدم ${it.name} في الهاتف") }
+        }
+
+        val name = o.optString("name").trim().ifEmpty { username }
+        val wantedId = o.optString("id")
+        val newId = if (wantedId.isNotBlank() && db.userDao().byId(wantedId) == null) wantedId else UUID.randomUUID().toString()
+        val u = existing?.copy(name = name, role = role, salt = nsalt, hash = nhash, cardUid = cards)
+            ?: User(newId, username, name, role, nsalt, nhash, System.currentTimeMillis(), cards)
+        db.userDao().upsert(u)
+        audit.add(who, if (existing == null) "إنشاء مستخدم" else "تعديل مستخدم",
+            "@$username (${if (role == "admin") "مدير" else "مدرّس"})" +
+                (if (cards.isNotBlank()) " — ${cardList(cards).size} بطاقة" else "") +
+                (if (existing != null && newCreds) " • كلمة المرور" else ""))
+        return JSONObject().put("ok", true).put("created", existing == null).put("user", userJson(u))
+    }
+
+    private suspend fun userDelete(o: JSONObject, who: String): JSONObject {
+        val id = o.optString("id")
+        val u = (if (id.isNotBlank()) db.userDao().byId(id) else null)
+            ?: o.optString("username").takeIf { it.isNotBlank() }?.let { db.userDao().byUsername(it) }
+            ?: throw HttpError(404, "المستخدم غير موجود")
+        if (u.role == "admin" && db.userDao().adminCount() <= 1) throw HttpError(409, "لا يمكن حذف آخر مدير في الهاتف")
+        db.userDao().delete(u.id)
+        audit.add(who, "حذف مستخدم", "@${u.username} (${u.name})")
+        return JSONObject().put("ok", true)
     }
 
     private val timeRe = Regex("^([01]\\d|2[0-3]):[0-5]\\d$")
