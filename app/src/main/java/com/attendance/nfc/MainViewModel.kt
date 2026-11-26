@@ -73,6 +73,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** رسالة تظهر في شاشة الدخول بعد الخروج التلقائي. */
     private val _logoutNotice = MutableStateFlow("")
     val logoutNotice: StateFlow<String> = _logoutNotice
+    private val _loginCardError = MutableStateFlow("")
+    val loginCardError: StateFlow<String> = _loginCardError
+    fun clearLoginCardError() { _loginCardError.value = "" }
 
     private val _authReady = MutableStateFlow(false)
     val authReady: StateFlow<Boolean> = _authReady
@@ -261,10 +264,27 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // ---------------- المسح ----------------
+    /** الدخول ببطاقة المدرّس من شاشة الدخول (للمدرّسين فقط؛ المدير يدخل بكلمة المرور). */
+    private suspend fun loginByCard(uid: String) {
+        val t = db.userDao().byCard(uid)
+        when {
+            t == null -> { _loginCardError.value = "هذه البطاقة غير مسجّلة لأي مستخدم"; feedback(false) }
+            t.role == "admin" -> { _loginCardError.value = "بطاقة المدير لا تُستخدم للدخول — ادخل بكلمة المرور"; feedback(false) }
+            else -> {
+                _loginCardError.value = ""
+                _logoutNotice.value = ""
+                _currentUser.value = t
+                authPrefs.edit().putString("uid", t.id).apply()
+                log("تسجيل دخول ببطاقة المدرّس")
+                feedback(true)
+            }
+        }
+    }
+
     fun onCardUid(uid: String) {
         viewModelScope.launch {
-            val u = _currentUser.value ?: return@launch
             if (uid.isBlank()) return@launch
+            val u = _currentUser.value ?: run { loginByCard(uid); return@launch }
             if (cardCapture.value) {
                 cardCapture.value = false
                 _captured.emit(uid)

@@ -29,6 +29,7 @@ fun LoginScreen(vm: MainViewModel) {
     var error by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     val notice by vm.logoutNotice.collectAsState()
+    val cardErr by vm.loginCardError.collectAsState()
 
     Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding(), contentAlignment = Alignment.Center) {
         Column(
@@ -44,9 +45,10 @@ fun LoginScreen(vm: MainViewModel) {
             Text("سجّل الدخول للمتابعة", color = Mut)
             if (notice.isNotBlank()) Text("🔒 $notice", color = OkC, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
             GlassCard {
-                AppField(username, { username = it; error = "" }, "اسم المستخدم")
+                AppField(username, { username = it; error = ""; vm.clearLoginCardError() }, "اسم المستخدم")
                 AppField(password, { password = it; error = "" }, "كلمة المرور", keyboard = KeyboardType.Password, visual = PasswordVisualTransformation())
                 if (error.isNotBlank()) Text(error, color = BadC, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                if (cardErr.isNotBlank()) Text(cardErr, color = BadC, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
                 Btn3D(if (busy) "..." else "دخول", {
                     busy = true
                     vm.login(username, password) { ok ->
@@ -54,6 +56,7 @@ fun LoginScreen(vm: MainViewModel) {
                         if (!ok) error = "اسم المستخدم أو كلمة المرور غير صحيحة"
                     }
                 }, Modifier.fillMaxWidth(), enabled = !busy && username.isNotBlank() && password.isNotEmpty())
+                Text("🪪 أو قرّب بطاقة المدرّس من الهاتف للدخول مباشرة", color = OkC, fontSize = 13.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
                 Text("أول تشغيل: اسم المستخدم admin وكلمة المرور 1234 — غيّرها بعد الدخول من تبويب «المستخدمون».", color = Mut, fontSize = 12.sp)
             }
         }

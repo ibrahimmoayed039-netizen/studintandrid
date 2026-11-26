@@ -43,3 +43,6 @@
 
 # v16 — سحب التقارير: POST /api/report
 - `POST /api/report {from,to}` (yyyy-MM-dd) في `LanServer.kt`: يعيد `students[{id,name,grade}]` و`sessions[{id,subject,group,date,start,teacher}]` و`att[[sessionId,studentId,"p"|"l",time]]` للنطاق، ويسجّل «سحب تقرير» في سجل تدقيق الهاتف. أُضيف `AttendanceDao.between`. لم يُبنَ الكود هنا.
+
+# v17 — الدخول ببطاقة المدرّس
+- `MainViewModel.onCardUid`: إن لم يكن هناك مستخدم مسجَّل يُستدعى `loginByCard(uid)` (NFC أو قارئ USB). يدخل المدرّس فقط (`role != admin`)؛ بطاقة المدير تُرفض برسالة (الدخول بكلمة المرور). الخطأ في `loginCardError` ويظهر في `LoginScreen`، وتُسجَّل العملية «تسجيل دخول ببطاقة المدرّس». لم يُبنَ الكود هنا.
