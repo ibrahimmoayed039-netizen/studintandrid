@@ -197,6 +197,23 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    private var lanCodeFails = 0
+    private var lanCodeLockUntil = 0L
+
+    /** يتحقق من الرمز الثابت لفتح نافذة الربط بالحاسوب من شاشة الدخول (يُخزَّن SHA-256 فقط). بعد 5 محاولات خاطئة يُقفل دقيقة. */
+    fun confirmLanCode(code: String, onResult: (String?) -> Unit) {
+        viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            if (now < lanCodeLockUntil) return@launch onResult("محاولات كثيرة خاطئة، انتظر دقيقة")
+            val h = java.security.MessageDigest.getInstance("SHA-256").digest(code.trim().toByteArray(Charsets.UTF_8))
+                .joinToString("") { "%02x".format(it) }
+            val ok = java.security.MessageDigest.isEqual(h.toByteArray(), LAN_CODE_SHA256.toByteArray())
+            if (ok) lanCodeFails = 0 else if (++lanCodeFails >= 5) { lanCodeFails = 0; lanCodeLockUntil = now + 60_000 }
+            log(if (ok) "فتح نافذة الربط بالحاسوب من شاشة الدخول" else "محاولة فاشلة لفتح نافذة الربط", if (ok) "" else "رمز خاطئ")
+            onResult(if (ok) null else "الرمز غير صحيح")
+        }
+    }
+
     /** يمنع تكرار بطاقة بين الطلاب والمستخدمين. يُرجع رسالة الخطأ أو null. */
     private suspend fun cardConflict(cards: String, exceptUserId: String): String? {
         for (uid in cardList(cards)) {
@@ -682,3 +699,5 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         return Picked(w.studentName, w.grade, st?.photoPath ?: "", pool.size - 1)
     }
 }
+
+private const val LAN_CODE_SHA256 = "ce33d3ffde3261ac827f3bbe6c51b3d36c025a3bd7fbdbe34daab4084c87c35a"

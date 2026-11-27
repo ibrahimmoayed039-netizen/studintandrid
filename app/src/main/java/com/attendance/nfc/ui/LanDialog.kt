@@ -9,6 +9,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -67,5 +69,47 @@ fun LanLinkDialog(vm: MainViewModel, onDismiss: () -> Unit) {
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("إغلاق") } }
+    )
+}
+
+/**
+ * زر «الربط بالحاسوب» لشاشة الدخول. يطلب رمزاً ثابتاً قبل فتح النافذة،
+ * لأن من يملك العنوان والرمز يستطيع تعديل الجداول والمستخدمين من الحاسوب.
+ */
+@Composable
+fun LanLinkEntry(vm: MainViewModel, modifier: Modifier = Modifier) {
+    val running by LanState.running.collectAsState()
+    var askPass by remember { mutableStateOf(false) }
+    var open by remember { mutableStateOf(false) }
+    Btn3D(if (running) "📡 الربط بالحاسوب — مفعّل 🟢" else "📡 الربط بالحاسوب (الشبكة المحلية)",
+        { askPass = true }, modifier.fillMaxWidth(), color = if (running) OkC else Pri2)
+    if (askPass) AdminPasswordDialog(vm, onOk = { askPass = false; open = true }, onDismiss = { askPass = false })
+    if (open) LanLinkDialog(vm) { open = false }
+}
+
+@Composable
+private fun AdminPasswordDialog(vm: MainViewModel, onOk: () -> Unit, onDismiss: () -> Unit) {
+    var password by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    fun submit() {
+        if (busy) return
+        busy = true
+        vm.confirmLanCode(password) { err -> busy = false; if (err == null) onOk() else { error = err; password = "" } }
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss, containerColor = Color(0xFF1A2150),
+        icon = { Text("🔐", fontSize = 32.sp) },
+        title = { Text("رمز الدخول", textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(), fontSize = 17.sp) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("أدخل رمز الدخول لإعدادات الربط بالحاسوب.", color = Mut, fontSize = 13.sp)
+                AppField(password, { password = it; error = "" }, "رمز الدخول",
+                    keyboard = KeyboardType.Password, visual = PasswordVisualTransformation())
+                if (error.isNotBlank()) Text(error, color = BadC, fontSize = 12.sp)
+            }
+        },
+        confirmButton = { TextButton(onClick = { submit() }, enabled = !busy && password.isNotEmpty()) { Text("متابعة", fontWeight = FontWeight.Bold) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("إلغاء") } }
     )
 }

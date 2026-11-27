@@ -59,6 +59,7 @@ fun LoginScreen(vm: MainViewModel) {
                 Text("🪪 أو قرّب بطاقة المدرّس من الهاتف للدخول مباشرة", color = OkC, fontSize = 13.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
                 Text("أول تشغيل: اسم المستخدم admin وكلمة المرور 1234 — غيّرها بعد الدخول من تبويب «المستخدمون».", color = Mut, fontSize = 12.sp)
             }
+            LanLinkEntry(vm)
         }
     }
 }
