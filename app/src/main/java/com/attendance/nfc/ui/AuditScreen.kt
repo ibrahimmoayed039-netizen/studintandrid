@@ -48,6 +48,7 @@ fun AuditScreen(vm: MainViewModel) {
 
     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { SectionTitle("سجل التدقيق") }
+        item { Text("يُحذف السجل تلقائياً بعد 3 أيام، ويمكنك حذفه كله في أي وقت. ", color = Mut, fontSize = 12.sp) }
         item { Text("يسجّل من أضاف أو عدّل أو حذف ماذا ومتى (الطلاب، الحضور، الجدول، المستخدمين، الإعدادات، النسخ الاحتياطي).", color = Mut, fontSize = 12.sp) }
         item { AppField(q, { q = it }, "🔍 بحث في السجل") }
         if (users.size > 1) item {
@@ -60,7 +61,7 @@ fun AuditScreen(vm: MainViewModel) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("العدد: ${filtered.size}", color = Mut, modifier = Modifier.weight(1f))
                 Btn3D("⬇ CSV", { export.launch("audit_log.csv") }, enabled = filtered.isNotEmpty(), small = true)
-                Btn3D("🗑 حذف الأقدم", { confirmPurge = true }, color = BadC, small = true)
+                Btn3D("🗑 حذف الكل", { confirmPurge = true }, color = BadC, small = true, enabled = all.isNotEmpty())
             }
         }
         if (filtered.isEmpty()) item { Text("لا توجد سجلات.", color = Mut) }
@@ -69,8 +70,8 @@ fun AuditScreen(vm: MainViewModel) {
     }
 
     if (confirmPurge) {
-        ConfirmDialog("حذف سجلات التدقيق الأقدم من 90 يوماً؟", "حذف",
-            onOk = { vm.purgeAudit(90); confirmPurge = false }, onDismiss = { confirmPurge = false })
+        ConfirmDialog("حذف كل سجلات التدقيق (${all.size} سجل)؟ لا يمكن التراجع.", "حذف الكل",
+            onOk = { vm.clearAudit(); confirmPurge = false }, onDismiss = { confirmPurge = false })
     }
 }
 

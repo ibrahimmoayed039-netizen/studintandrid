@@ -299,7 +299,8 @@ class LanServer(private val ctx: Context, private val port: Int, private val tok
         if (username.isEmpty() || username.length > 64) throw HttpError(400, "اسم المستخدم مطلوب")
         val role = if (o.optString("role") == "admin") "admin" else "teacher"
         val existing = db.userDao().byUsername(username)
-        if (existing != null && existing.role == "admin" && role != "admin" && db.userDao().adminCount() <= 1)
+        // force=true يُرسله الحاسوب بعد تأكيد صريح من المستخدم (الحاسوب يستطيع دائماً إنشاء مدير جديد)
+        if (existing != null && existing.role == "admin" && role != "admin" && db.userDao().adminCount() <= 1 && !o.optBoolean("force"))
             throw HttpError(409, "لا يمكن إزالة صلاحية آخر مدير في الهاتف")
 
         val pw = o.optString("password")
@@ -328,7 +329,7 @@ class LanServer(private val ctx: Context, private val port: Int, private val tok
             ?: User(newId, username, name, role, nsalt, nhash, System.currentTimeMillis(), cards)
         db.userDao().upsert(u)
         audit.add(who, if (existing == null) "إنشاء مستخدم" else "تعديل مستخدم",
-            "@$username (${if (role == "admin") "مدير" else "مدرّس"})" +
+            "@$username (${if (role == "admin") "مدير" else "مدرّس"})" + (if (existing != null && existing.role != role) " • تغيير الصلاحية" else "") +
                 (if (cards.isNotBlank()) " — ${cardList(cards).size} بطاقة" else "") +
                 (if (existing != null && newCreds) " • كلمة المرور" else ""))
         return JSONObject().put("ok", true).put("created", existing == null).put("user", userJson(u))
@@ -339,7 +340,7 @@ class LanServer(private val ctx: Context, private val port: Int, private val tok
         val u = (if (id.isNotBlank()) db.userDao().byId(id) else null)
             ?: o.optString("username").takeIf { it.isNotBlank() }?.let { db.userDao().byUsername(it) }
             ?: throw HttpError(404, "المستخدم غير موجود")
-        if (u.role == "admin" && db.userDao().adminCount() <= 1) throw HttpError(409, "لا يمكن حذف آخر مدير في الهاتف")
+        if (u.role == "admin" && db.userDao().adminCount() <= 1 && !o.optBoolean("force")) throw HttpError(409, "لا يمكن حذف آخر مدير في الهاتف")
         db.userDao().delete(u.id)
         audit.add(who, "حذف مستخدم", "@${u.username} (${u.name})")
         return JSONObject().put("ok", true)

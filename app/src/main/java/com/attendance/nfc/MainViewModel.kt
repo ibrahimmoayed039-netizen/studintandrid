@@ -45,6 +45,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val audit: StateFlow<List<AuditEntry>> = auditStore.flow
     private fun log(action: String, detail: String = "") =
         auditStore.add(_currentUser.value?.name ?: "النظام", action, detail)
+    /** حذف كل سجلات التدقيق (يبقى سجل واحد يوثّق عملية الحذف نفسها). */
+    fun clearAudit() {
+        val n = auditStore.clearAll()
+        log("حذف كل سجلات التدقيق", "$n سجل")
+    }
     fun purgeAudit(days: Int) {
         val n = auditStore.purgeOlderThan(days)
         log("حذف سجلات التدقيق القديمة", "$n سجل (أقدم من $days يوماً)")

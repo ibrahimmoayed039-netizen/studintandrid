@@ -8,7 +8,7 @@ import java.io.File
 
 data class AuditEntry(val ts: Long, val userName: String, val action: String, val detail: String)
 
-/** سجل تدقيق: من فعل ماذا ومتى. ملف JSON Lines محلي، الأحدث أولاً، بحد أقصى 5000 سجل. */
+/** سجل تدقيق: من فعل ماذا ومتى. ملف JSON Lines محلي، الأحدث أولاً، بحد أقصى 5000 سجل، ويُحذف تلقائياً ما مضى عليه أكثر من 3 أيام. */
 class AuditStore(ctx: Context) {
     private val file = File(ctx.filesDir, "audit.jsonl")
     private val _flow = MutableStateFlow(load())
@@ -31,7 +31,8 @@ class AuditStore(ctx: Context) {
         val e = AuditEntry(System.currentTimeMillis(), user, action, detail)
         try { file.appendText(line(e) + "\n", Charsets.UTF_8) } catch (_: Exception) {}
         var list = listOf(e) + _flow.value
-        if (list.size > MAX) { list = list.take(MAX); rewrite(list) }
+        val cutoff = System.currentTimeMillis() - RETAIN_DAYS * 86_400_000L
+        if (list.size > MAX || list.last().ts < cutoff) { list = list.take(MAX).filter { it.ts >= cutoff }; rewrite(list) }
         _flow.value = list
     }
 
@@ -45,16 +46,26 @@ class AuditStore(ctx: Context) {
         return removed
     }
 
+    /** يحذف كل السجلات يدوياً. */
+    @Synchronized
+    fun clearAll(): Int {
+        val n = _flow.value.size
+        _flow.value = emptyList()
+        try { file.writeText("", Charsets.UTF_8) } catch (_: Exception) {}
+        return n
+    }
+
     private fun rewrite(newestFirst: List<AuditEntry>) {
         try { file.writeText(newestFirst.reversed().joinToString("") { line(it) + "\n" }, Charsets.UTF_8) } catch (_: Exception) {}
     }
 
     companion object {
         const val MAX = 5000
+        const val RETAIN_DAYS = 3
         @Volatile private var inst: AuditStore? = null
         /** نسخة واحدة للتطبيق كله ليشاركها الخادم والواجهة. */
         fun get(ctx: Context): AuditStore = inst ?: synchronized(this) {
-            inst ?: AuditStore(ctx.applicationContext).also { inst = it }
+            inst ?: AuditStore(ctx.applicationContext).also { it.purgeOlderThan(RETAIN_DAYS); inst = it }
         }
     }
 }
