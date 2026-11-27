@@ -21,6 +21,13 @@ object Passwords {
         return toHex(SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded)
     }
 
+    /** نسخة الحاسوب القديمة تستعمل نص الملح (UTF-8) لا بايتاته، لذا تُقبل الصيغتان (مستخدمو الحاسوب المرسَلون إلى الهاتف). */
+    private fun hashTextSalt(password: String, salt: String): String {
+        val spec = PBEKeySpec(password.toCharArray(), salt.toByteArray(Charsets.UTF_8), 100_000, 256)
+        return toHex(SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded)
+    }
+
     fun verify(password: String, saltHex: String, hashHex: String): Boolean =
-        MessageDigest.isEqual(hash(password, saltHex).toByteArray(), hashHex.toByteArray())
+        MessageDigest.isEqual(hash(password, saltHex).toByteArray(), hashHex.toByteArray()) ||
+            MessageDigest.isEqual(hashTextSalt(password, saltHex).toByteArray(), hashHex.toByteArray())
 }
