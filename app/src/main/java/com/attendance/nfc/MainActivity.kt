@@ -134,6 +134,7 @@ private fun MainShell(vm: MainViewModel, nfcStatus: Int, user: User) {
     val current = if (tabs.any { it.id == tabId }) tabId else "scan"
     var kiosk by rememberSaveable { mutableStateOf(false) }
     var confirmLogout by remember { mutableStateOf(false) }
+    var showLan by remember { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
     val active by vm.activeSession.collectAsState()
     val settings by vm.settings.collectAsState()
@@ -148,7 +149,7 @@ private fun MainShell(vm: MainViewModel, nfcStatus: Int, user: User) {
         Scaffold(
             containerColor = Color.Transparent,
             snackbarHost = { SnackbarHost(snackbar) },
-            topBar = { AppHeader(settings.schoolName, user, nfcStatus) { confirmLogout = true } },
+            topBar = { AppHeader(settings.schoolName, user, nfcStatus, onLan = if (isAdmin) ({ showLan = true }) else null) { confirmLogout = true } },
             bottomBar = { BottomTabs(tabs, current) { tabId = it } }
         ) { pad ->
             Box(Modifier.padding(pad).fillMaxSize()) {
@@ -166,6 +167,8 @@ private fun MainShell(vm: MainViewModel, nfcStatus: Int, user: User) {
         }
         if (kiosk && active != null) KioskScreen(vm) { kiosk = false }
     }
+
+    if (showLan) LanLinkDialog(vm) { showLan = false }
 
     if (confirmLogout) {
         ConfirmDialog("تسجيل الخروج من حساب «${user.name}»؟", "خروج",
@@ -196,8 +199,9 @@ private fun BottomTabs(tabs: List<TabDef>, selected: String, onSelect: (String) 
 }
 
 @Composable
-private fun AppHeader(school: String, user: User, nfcStatus: Int, onLogout: () -> Unit) {
+private fun AppHeader(school: String, user: User, nfcStatus: Int, onLan: (() -> Unit)? = null, onLogout: () -> Unit) {
     val now by rememberTicker()
+    val lanRunning by com.attendance.nfc.data.LanState.running.collectAsState()
     val shape = RoundedCornerShape(bottomStart = 22.dp, bottomEnd = 22.dp)
     Row(
         Modifier.fillMaxWidth().clip(shape)
@@ -211,6 +215,7 @@ private fun AppHeader(school: String, user: User, nfcStatus: Int, onLogout: () -
         }
         Badge(if (nfcStatus == 0) "NFC ✓" else "NFC ✕", if (nfcStatus == 0) OkC else WarnC)
         Text("%02d:%02d".format(now.hour, now.minute), fontSize = 17.sp, fontWeight = FontWeight.Bold)
+        if (onLan != null) Btn3D("📡", onLan, color = if (lanRunning) OkC else Color(0xFF4A5180), small = true)
         Btn3D("🚪", onLogout, color = Color(0xFF4A5180), small = true)
     }
 }
