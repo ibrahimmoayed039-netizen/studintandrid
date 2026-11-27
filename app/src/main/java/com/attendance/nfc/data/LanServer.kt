@@ -187,6 +187,8 @@ class LanServer(private val ctx: Context, private val port: Int, private val tok
                 method == "GET" && path == "/api/users" -> usersList()
                 method == "POST" && path == "/api/users/save" -> userSave(JSONObject(body), who)
                 method == "POST" && path == "/api/users/delete" -> userDelete(JSONObject(body), who)
+                method == "GET" && path == "/api/students" -> studentsList()
+                method == "POST" && path == "/api/students/import" -> studentsImport(JSONObject(body), who)
                 method == "GET" && path == "/api/schedule" -> listAll()
                 method == "POST" && path == "/api/schedule/save" -> save(JSONObject(body), who)
                 method == "POST" && path == "/api/schedule/delete" -> delete(JSONObject(body), who)
@@ -194,6 +196,58 @@ class LanServer(private val ctx: Context, private val port: Int, private val tok
                 else -> throw HttpError(404, "مسار غير معروف")
             }
         }
+    }
+
+    /** قائمة طلاب الهاتف (الاسم والصف/المرحلة والبطاقة). */
+    private suspend fun studentsList(): JSONObject {
+        val arr = JSONArray()
+        db.studentDao().all().sortedWith(compareBy<Student>({ it.grade }, { it.name })).forEach {
+            arr.put(JSONObject().put("id", it.id).put("name", it.name).put("grade", it.grade).put("cardUid", it.cardUid))
+        }
+        return JSONObject().put("ok", true).put("students", arr)
+    }
+
+    /**
+     * إضافة/تحديث طلاب دفعة واحدة من الحاسوب. "grade" (اختياري) يفرض المرحلة لكل الدفعة.
+     * المطابقة: بالبطاقة أولاً، ثم بالاسم + المرحلة للطالب الذي بلا بطاقة. لا يُحذف أي طالب موجود.
+     * البطاقة المسجّلة لمدرّس أو لطالب آخر تُتخطّى مع ذكر السبب.
+     */
+    private suspend fun studentsImport(o: JSONObject, who: String): JSONObject {
+        val arr = o.optJSONArray("students") ?: throw HttpError(400, "students مطلوبة")
+        if (arr.length() > 1000) throw HttpError(400, "عدد الطلاب كبير (الحد 1000 في الطلب)")
+        val forced = o.optString("grade").trim()
+        val all = db.studentDao().all().toMutableList()
+        var added = 0; var updated = 0; var same = 0
+        val skipped = JSONArray()
+        fun skip(name: String, why: String) { if (skipped.length() < 50) skipped.put(JSONObject().put("name", name).put("reason", why)) }
+        db.withTransaction {
+            for (i in 0 until arr.length()) {
+                val r = arr.getJSONObject(i)
+                val name = r.optString("name").trim()
+                if (name.isEmpty()) continue
+                val grade = forced.ifEmpty { r.optString("grade").trim() }
+                val card = cardList(r.optString("cardUid")).firstOrNull() ?: ""
+                if (card.isNotEmpty() && db.userDao().byCard(card) != null) { skip(name, "البطاقة $card مخصّصة لمدرّس"); continue }
+                val byCard = if (card.isNotEmpty()) all.find { it.cardUid == card } else null
+                val target = byCard ?: all.find { it.cardUid.isBlank() && it.name == name && it.grade == grade }
+                    ?: if (card.isEmpty()) all.find { it.name == name && it.grade == grade } else null
+                if (target == null) {
+                    val s = Student(UUID.randomUUID().toString(), name, grade, card)
+                    db.studentDao().upsert(s); all.add(s); added++
+                } else {
+                    val nc = if (card.isNotEmpty()) card else target.cardUid
+                    if (target.name == name && target.grade == grade && target.cardUid == nc) { same++; continue }
+                    val s = target.copy(name = name, grade = grade, cardUid = nc)
+                    db.studentDao().upsert(s)
+                    val idx = all.indexOfFirst { it.id == target.id }; if (idx >= 0) all[idx] = s
+                    updated++
+                }
+            }
+        }
+        audit.add(who, "استيراد طلاب من الحاسوب",
+            "$added جديد، $updated محدَّث، $same دون تغيير، ${skipped.length()} متخطّى" + (if (forced.isNotEmpty()) " — المرحلة: $forced" else ""))
+        return JSONObject().put("ok", true).put("added", added).put("updated", updated).put("same", same)
+            .put("skipped", skipped).put("total", db.studentDao().all().size)
     }
 
     private fun lectureMin() = SettingsStore(ctx).flow.value.lectureMin
