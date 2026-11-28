@@ -330,7 +330,7 @@ class LanServer(private val ctx: Context, private val port: Int, private val tok
 
     // ---------- المستخدمون ----------
     private fun userJson(u: User) = JSONObject().put("id", u.id).put("username", u.username).put("name", u.name)
-        .put("role", u.role).put("cardUid", u.cardUid)
+        .put("role", u.role).put("cardUid", u.cardUid).put("canStudents", u.canStudents)
 
     /** قائمة المستخدمين (بلا كلمات المرور أو التجزئة). */
     private suspend fun usersList(): JSONObject {
@@ -379,8 +379,9 @@ class LanServer(private val ctx: Context, private val port: Int, private val tok
         val name = o.optString("name").trim().ifEmpty { username }
         val wantedId = o.optString("id")
         val newId = if (wantedId.isNotBlank() && db.userDao().byId(wantedId) == null) wantedId else UUID.randomUUID().toString()
-        val u = existing?.copy(name = name, role = role, salt = nsalt, hash = nhash, cardUid = cards)
-            ?: User(newId, username, name, role, nsalt, nhash, System.currentTimeMillis(), cards)
+        val cs = role != "admin" && (if (o.has("canStudents")) o.optBoolean("canStudents") else (existing?.canStudents ?: false))
+        val u = existing?.copy(name = name, role = role, salt = nsalt, hash = nhash, cardUid = cards, canStudents = cs)
+            ?: User(newId, username, name, role, nsalt, nhash, System.currentTimeMillis(), cards, cs)
         db.userDao().upsert(u)
         audit.add(who, if (existing == null) "إنشاء مستخدم" else "تعديل مستخدم",
             "@$username (${if (role == "admin") "مدير" else "مدرّس"})" + (if (existing != null && existing.role != role) " • تغيير الصلاحية" else "") +

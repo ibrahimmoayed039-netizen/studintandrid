@@ -231,7 +231,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     // ---------------- المستخدمون (للمدير) ----------------
     private fun roleOf(r: String) = if (r == "admin") "admin" else "teacher"
 
-    fun createUser(username: String, password: String, name: String, role: String, cardUid: String, onResult: (String?) -> Unit) {
+    fun createUser(username: String, password: String, name: String, role: String, cardUid: String, canStudents: Boolean = false, onResult: (String?) -> Unit) {
         viewModelScope.launch {
             val un = username.trim()
             if (un.isEmpty() || password.isEmpty()) return@launch onResult("أدخل اسم المستخدم وكلمة المرور")
@@ -240,20 +240,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             cardConflict(cards, "")?.let { return@launch onResult(it) }
             val salt = Passwords.newSalt()
             val hash = withContext(Dispatchers.Default) { Passwords.hash(password, salt) }
-            db.userDao().upsert(User(UUID.randomUUID().toString(), un, name.trim().ifEmpty { un }, roleOf(role), salt, hash, System.currentTimeMillis(), cards))
+            db.userDao().upsert(User(UUID.randomUUID().toString(), un, name.trim().ifEmpty { un }, roleOf(role), salt, hash, System.currentTimeMillis(), cards, roleOf(role) != "admin" && canStudents))
             log("إنشاء مستخدم", "@$un (${if (roleOf(role) == "admin") "مدير" else "مدرّس"})" + if (cards.isNotBlank()) " — مع ${cardList(cards).size} بطاقة" else "")
             onResult(null)
         }
     }
 
-    fun updateUser(id: String, name: String, role: String, cardUid: String, onResult: (String?) -> Unit) {
+    fun updateUser(id: String, name: String, role: String, cardUid: String, canStudents: Boolean = false, onResult: (String?) -> Unit) {
         viewModelScope.launch {
             val u = db.userDao().byId(id) ?: return@launch onResult("المستخدم غير موجود")
             val newRole = roleOf(role)
             if (u.role == "admin" && newRole != "admin" && db.userDao().adminCount() <= 1) return@launch onResult("لا يمكن إزالة صلاحية آخر مدير")
             val cards = cardJoin(cardList(cardUid))
             cardConflict(cards, id)?.let { return@launch onResult(it) }
-            val nu = u.copy(name = name.trim().ifEmpty { u.username }, role = newRole, cardUid = cards)
+            val nu = u.copy(name = name.trim().ifEmpty { u.username }, role = newRole, cardUid = cards, canStudents = newRole != "admin" && canStudents)
             db.userDao().upsert(nu)
             if (_currentUser.value?.id == id) _currentUser.value = nu
             log("تعديل مستخدم", "@${u.username}: ${u.name} (${u.role}) ← ${nu.name} (${nu.role})" +
@@ -473,8 +473,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // ---------------- الطلاب ----------------
+    /** المدير يعدّل كل الطلاب؛ المدرّس صاحب الصلاحية يعدّل من أضافهم فقط. */
+    fun canTouchStudent(s: Student?): Boolean {
+        val me = _currentUser.value ?: return false
+        return me.role == "admin" || (me.canStudents && (s == null || s.createdBy == me.id))
+    }
+
     fun saveStudent(s: Student, onResult: (Boolean) -> Unit) {
         viewModelScope.launch {
+            val prev = db.studentDao().all().find { it.id == s.id }
+            if (!canTouchStudent(prev)) { toast("لا تملك صلاحية تعديل هذا الطالب"); onResult(false); return@launch }
             if (s.cardUid.isNotBlank()) {
                 val ex = db.studentDao().byCard(s.cardUid)
                 if (ex != null && ex.id != s.id) { toast("هذه البطاقة مسجّلة للطالب ${ex.name}"); onResult(false); return@launch }
@@ -499,6 +507,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     /** استيراد طلاب من Excel/CSV. تُهمل أرقام البطاقات المكررة (يُضاف الطالب بدون بطاقة). */
     fun importStudents(uri: Uri) {
+        if (!canTouchStudent(null)) { toast("لا تملك صلاحية إضافة الطلاب"); return }
         viewModelScope.launch {
             try {
                 val rows = withContext(Dispatchers.IO) { StudentImport.parse(getApplication(), uri) }
@@ -508,7 +517,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 val list = rows.map { r ->
                     var uid = r.cardUid
                     if (uid.isNotBlank() && !used.add(uid)) { uid = ""; conflicts++ }
-                    Student(UUID.randomUUID().toString(), r.name, r.grade, uid)
+                    Student(UUID.randomUUID().toString(), r.name, r.grade, uid, "", _currentUser.value?.id ?: "")
                 }
                 db.studentDao().upsertAll(list)
                 log("استيراد طلاب", "${list.size} طالب من ملف")
@@ -588,6 +597,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun deleteStudent(id: String) {
         val st = students.value.find { it.id == id }
+        if (!canTouchStudent(st)) { toast("لا تملك صلاحية حذف هذا الطالب"); return }
         viewModelScope.launch {
             db.studentDao().delete(id)
             log("حذف طالب", st?.let { "${it.name} — ${it.grade}" } ?: id)

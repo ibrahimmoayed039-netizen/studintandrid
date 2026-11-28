@@ -38,7 +38,7 @@ object Backup {
         val students = JSONArray()
         db.studentDao().all().forEach { s ->
             students.put(JSONObject().put("id", s.id).put("name", s.name).put("grade", s.grade)
-                .put("cardUid", s.cardUid).put("photo", photoToB64(s.photoPath)))
+                .put("cardUid", s.cardUid).put("photo", photoToB64(s.photoPath)).put("createdBy", s.createdBy))
         }
         root.put("students", students)
 
@@ -69,7 +69,7 @@ object Backup {
         val users = JSONArray()
         db.userDao().all().forEach { u ->
             users.put(JSONObject().put("id", u.id).put("username", u.username).put("name", u.name)
-                .put("role", u.role).put("salt", u.salt).put("hash", u.hash).put("createdAt", u.createdAt).put("cardUid", u.cardUid))
+                .put("role", u.role).put("salt", u.salt).put("hash", u.hash).put("createdAt", u.createdAt).put("cardUid", u.cardUid).put("canStudents", u.canStudents))
         }
         root.put("users", users)
         root.toString(2)
@@ -86,7 +86,7 @@ object Backup {
         }
 
         val students = root.optJSONArray("students").mapObjects { o ->
-            Student(o.getString("id"), o.getString("name"), o.optString("grade"), o.optString("cardUid"), b64ToPhoto(ctx, o.optString("photo")))
+            Student(o.getString("id"), o.getString("name"), o.optString("grade"), o.optString("cardUid"), b64ToPhoto(ctx, o.optString("photo")), o.optString("createdBy"))
         }
         val schedule = root.optJSONArray("schedule").mapObjects { o ->
             ScheduleItem(o.getString("id"), o.getInt("day"), o.getString("subject"), o.optString("grp"), o.getString("start"),
@@ -103,7 +103,7 @@ object Backup {
         }
         val users = root.optJSONArray("users").mapObjects { o ->
             User(o.getString("id"), o.getString("username"), o.optString("name"), o.optString("role", "teacher"),
-                o.getString("salt"), o.getString("hash"), o.optLong("createdAt"), o.optString("cardUid"))
+                o.getString("salt"), o.getString("hash"), o.optLong("createdAt"), o.optString("cardUid"), o.optBoolean("canStudents", false))
         }
 
         db.withTransaction {

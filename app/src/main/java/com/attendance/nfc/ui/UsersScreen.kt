@@ -53,7 +53,7 @@ fun UsersScreen(vm: MainViewModel) {
                         Text(u.name + if (u.id == me?.id) " (أنت)" else "", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                         Text("@${u.username}" + if (u.cardUid.isNotBlank()) "  •  💳 ${cardList(u.cardUid).size} بطاقة" else "", color = Mut, fontSize = 13.sp)
                     }
-                    Badge(if (u.role == "admin") "مدير" else "مدرّس", if (u.role == "admin") Pri2 else InfoC)
+                    Badge(if (u.role == "admin") "مدير" else "مدرّس" + (if (u.canStudents) " 🎓" else ""), if (u.role == "admin") Pri2 else InfoC)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Btn3D("تعديل", { editing = u }, Modifier.weight(1f), small = true)
@@ -89,6 +89,7 @@ private fun UserDialog(vm: MainViewModel, initial: User?, onDismiss: () -> Unit)
         card = ""
     }
     var error by remember { mutableStateOf("") }
+    var canSt by remember { mutableStateOf(initial?.canStudents ?: false) }
     val waiting by vm.cardCapture.collectAsState()
     val cardFocus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
@@ -111,6 +112,10 @@ private fun UserDialog(vm: MainViewModel, initial: User?, onDismiss: () -> Unit)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(selected = role == "teacher", onClick = { role = "teacher" }, label = { Text("مدرّس") })
                     FilterChip(selected = role == "admin", onClick = { role = "admin" }, label = { Text("مدير") })
+                }
+                if (role != "admin") Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = canSt, onCheckedChange = { canSt = it })
+                    Text("يسمح له بإضافة طلابه وبطاقاتهم (يرى ويعدّل من أضافهم فقط)", fontSize = 13.sp)
                 }
                 if (initial == null) AppField(password, { password = it }, "كلمة المرور", visual = PasswordVisualTransformation())
                 Text("بطاقات المدرّسين (اختياري) — يمكن إضافة أكثر من بطاقة لنفس المستخدم، وأي بطاقة منها تؤكّد الحذف", color = Mut, fontSize = 12.sp)
@@ -140,8 +145,8 @@ private fun UserDialog(vm: MainViewModel, initial: User?, onDismiss: () -> Unit)
                 val done: (String?) -> Unit = { err -> if (err == null) onDismiss() else error = err }
                 if (card.isNotBlank()) addCard(card)
                 val joined = cardJoin(cards.toList())
-                if (initial == null) vm.createUser(username, password, name, role, joined, done)
-                else vm.updateUser(initial.id, name, role, joined, done)
+                if (initial == null) vm.createUser(username, password, name, role, joined, canSt, done)
+                else vm.updateUser(initial.id, name, role, joined, canSt, done)
             }) { Text("حفظ", fontWeight = FontWeight.Bold) }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("إلغاء") } }

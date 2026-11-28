@@ -32,7 +32,10 @@ import java.util.UUID
 
 @Composable
 fun StudentsScreen(vm: MainViewModel) {
-    val students by vm.students.collectAsState()
+    val allStudents by vm.students.collectAsState()
+    val me by vm.currentUser.collectAsState()
+    val isAdmin = me?.role == "admin"
+    val students = if (isAdmin) allStudents else allStudents.filter { it.createdBy == me?.id }
     var q by rememberSaveable { mutableStateOf("") }
     var editing by remember { mutableStateOf<Student?>(null) }
     var creating by remember { mutableStateOf(false) }
@@ -69,8 +72,10 @@ fun StudentsScreen(vm: MainViewModel) {
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     active?.let { ses -> Btn3D("حضور يدوي", { vm.markPresent(ses, st) }, Modifier.weight(1f), color = OkC, small = true) }
-                    Btn3D("تعديل", { editing = st }, Modifier.weight(1f), small = true)
-                    Btn3D("حذف", { deleting = st }, Modifier.weight(1f), color = BadC, small = true)
+                    if (vm.canTouchStudent(st)) {
+                        Btn3D("تعديل", { editing = st }, Modifier.weight(1f), small = true)
+                        Btn3D("حذف", { deleting = st }, Modifier.weight(1f), color = BadC, small = true)
+                    }
                 }
             }
         }
@@ -133,7 +138,7 @@ private fun StudentDialog(vm: MainViewModel, initial: Student?, grades: List<Str
         },
         confirmButton = {
             TextButton(enabled = name.isNotBlank(), onClick = {
-                vm.saveStudent(Student(initial?.id ?: UUID.randomUUID().toString(), name.trim(), grade.trim(), uid.trim(), photo)) { ok ->
+                vm.saveStudent(Student(initial?.id ?: UUID.randomUUID().toString(), name.trim(), grade.trim(), uid.trim(), photo, initial?.createdBy ?: (vm.currentUser.value?.id ?: ""))) { ok ->
                     if (ok) onDismiss()
                 }
             }) { Text("حفظ", fontWeight = FontWeight.Bold) }

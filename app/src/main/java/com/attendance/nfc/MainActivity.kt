@@ -129,7 +129,7 @@ fun AppRoot(vm: MainViewModel, nfcStatus: Int) {
 @Composable
 private fun MainShell(vm: MainViewModel, nfcStatus: Int, user: User) {
     val isAdmin = user.role == "admin"
-    val tabs = remember(isAdmin) { ALL_TABS.filter { isAdmin || !it.adminOnly } }
+    val tabs = remember(isAdmin, user.canStudents) { ALL_TABS.filter { isAdmin || !it.adminOnly || (it.id == "students" && user.canStudents) } }
     var tabId by rememberSaveable { mutableStateOf("scan") }
     val current = if (tabs.any { it.id == tabId }) tabId else "scan"
     var kiosk by rememberSaveable { mutableStateOf(false) }

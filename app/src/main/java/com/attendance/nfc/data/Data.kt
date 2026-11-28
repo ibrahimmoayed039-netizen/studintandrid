@@ -16,7 +16,9 @@ data class User(
     val hash: String,
     val createdAt: Long,
     /** بطاقات المدرّسين (UID) لتأكيد الحذف بدل كلمة المرور؛ عدة بطاقات مفصولة بفاصلة لمستخدم واحد. فارغة = لا بطاقة. */
-    val cardUid: String = ""
+    val cardUid: String = "",
+    /** يسمح للمدرّس بإضافة طلابه وبطاقاتهم (لا يرى ولا يعدّل إلا من أضافهم). */
+    val canStudents: Boolean = false
 )
 
 @Entity(tableName = "students")
@@ -25,7 +27,9 @@ data class Student(
     val name: String,
     val grade: String = "",
     val cardUid: String = "",
-    val photoPath: String = ""
+    val photoPath: String = "",
+    /** معرّف المستخدم الذي أضاف الطالب (فارغ = أضافه المدير أو الحاسوب). */
+    val createdBy: String = ""
 )
 
 /** حصة في الجدول الأسبوعي. day: 0 = الأحد ... 6 = السبت. لكل مستخدم جدوله (ownerId). */
@@ -241,9 +245,17 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
     }
 }
 
+/** ترحيل من الإصدار 3: صلاحية المدرّس لإضافة الطلاب + صاحب الطالب. */
+val MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE users ADD COLUMN canStudents INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE students ADD COLUMN createdBy TEXT NOT NULL DEFAULT ''")
+    }
+}
+
 @Database(
     entities = [User::class, Student::class, ScheduleItem::class, LectureSession::class, Attendance::class],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -257,7 +269,7 @@ abstract class AppDatabase : RoomDatabase() {
         @Volatile private var instance: AppDatabase? = null
         fun get(ctx: Context): AppDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(ctx.applicationContext, AppDatabase::class.java, "attendance.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .build().also { instance = it }
         }
     }
